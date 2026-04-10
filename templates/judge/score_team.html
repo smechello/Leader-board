@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+
+{% block title %}Score Team - {{ team.team_name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Score Team: {{ team.team_name }}</h2>
+    <a class="btn btn-outline-secondary" href="{{ url_for('judge.dashboard') }}">Back to Dashboard</a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label text-muted">Theme</label>
+                <div>{{ team.theme }}</div>
+            </div>
+            <div class="col-md-8">
+                <label class="form-label text-muted">Project Title</label>
+                <div>{{ team.project.project_title if team.project else '-' }}</div>
+            </div>
+            <div class="col-12">
+                <label class="form-label text-muted">Project Summary</label>
+                <div>{{ team.project.project_summary if team.project else '-' }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<form method="post" class="card">
+    <div class="card-body">
+        <div class="row g-3">
+            {% for category in category_definitions %}
+            <div class="col-md-6">
+                <label for="{{ category.key }}" class="form-label">
+                    {{ category.label }} ({{ category.weight_percent }}%)
+                </label>
+                <input
+                    type="number"
+                    id="{{ category.key }}"
+                    name="{{ category.key }}"
+                    class="form-control score-input"
+                    data-multiplier="{{ category.multiplier }}"
+                    min="0"
+                    max="10"
+                    step="0.01"
+                    value="{{ score_values.get(category.key) if score_values.get(category.key) is not none else '' }}"
+                    required>
+                <div class="form-text">Enter a score between 0 and 10.</div>
+            </div>
+            {% endfor %}
+
+            <div class="col-12">
+                <label for="remarks" class="form-label">Remarks (Optional)</label>
+                <textarea id="remarks" name="remarks" class="form-control" rows="3">{{ remarks }}</textarea>
+            </div>
+
+            <div class="col-12">
+                <div class="p-3 border rounded bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <strong>Live Weighted Total (0-100):</strong>
+                        <span id="live-total">{{ '%.2f'|format(preview_total) }}</span>
+                    </div>
+                    <div class="text-muted">
+                        Previously saved categories: {{ existing_snapshot.categories_scored }} / 4
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card-footer bg-white d-flex justify-content-end gap-2 flex-wrap">
+        <button type="submit" name="action" value="save" class="btn btn-primary">Save Scores</button>
+        <button type="submit" name="action" value="save_next" class="btn btn-outline-primary">Save and Next Team</button>
+    </div>
+</form>
+
+<script>
+(function () {
+    const inputs = document.querySelectorAll('.score-input');
+    const totalElement = document.getElementById('live-total');
+
+    function updateTotal() {
+        let total = 0;
+        inputs.forEach((input) => {
+            const scoreValue = parseFloat(input.value);
+            const multiplier = parseFloat(input.dataset.multiplier || '0');
+            if (!Number.isNaN(scoreValue)) {
+                total += scoreValue * multiplier;
+            }
+        });
+        totalElement.textContent = total.toFixed(2);
+    }
+
+    inputs.forEach((input) => {
+        input.addEventListener('input', updateTotal);
+    });
+
+    updateTotal();
+})();
+</script>
+{% endblock %}

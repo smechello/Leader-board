@@ -3,6 +3,56 @@
 {% block title %}Judge Dashboard{% endblock %}
 
 {% block content %}
-<h2 class="mb-3">Judge Dashboard</h2>
-<p class="text-muted">Welcome, {{ judge.username }}. Team scoring screens will be built in Step 6.</p>
+<div class="d-flex justify-content-between align-items-center mb-3">
+	<h2 class="mb-0">Judge Dashboard</h2>
+	<span class="text-muted">Welcome, {{ judge.username }}</span>
+</div>
+
+<p class="text-muted">Select a team to score or edit your previous scores.</p>
+
+<div class="table-responsive">
+	<table class="table table-bordered table-striped align-middle">
+		<thead class="table-dark">
+			<tr>
+				<th>ID</th>
+				<th>Team</th>
+				<th>Theme</th>
+				<th>Project</th>
+				<th>Summary</th>
+				<th>Progress</th>
+				<th>Your Total</th>
+				<th>Action</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for team in teams %}
+			<tr>
+				<td>{{ team.id }}</td>
+				<td>{{ team.team_name }}</td>
+				<td>{{ team.theme }}</td>
+				<td>{{ team.project_title }}</td>
+				<td>{{ team.project_summary }}</td>
+				<td>
+					{{ team.categories_scored }}/{{ category_count }}
+					{% if team.is_completed %}
+						<span class="badge text-bg-success ms-1">Completed</span>
+					{% else %}
+						<span class="badge text-bg-warning ms-1">Pending</span>
+					{% endif %}
+				</td>
+				<td>{{ '%.2f'|format(team.judge_total) }}</td>
+				<td>
+					<a class="btn btn-sm btn-primary" href="{{ url_for('judge.score_team', team_id=team.id) }}">
+						{{ 'Edit Score' if team.categories_scored else 'Score Team' }}
+					</a>
+				</td>
+			</tr>
+			{% else %}
+			<tr>
+				<td colspan="8" class="text-center text-muted">No active teams are available for scoring.</td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+</div>
 {% endblock %}
