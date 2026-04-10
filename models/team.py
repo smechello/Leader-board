@@ -16,6 +16,7 @@ class Team(db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     presentation_completed = db.Column(db.Boolean, nullable=False, default=False, index=True)
     presentation_completed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    presentation_elapsed_seconds = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now(), nullable=False)
     updated_at = db.Column(
         db.DateTime(timezone=True),

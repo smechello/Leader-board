@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 import re
 import secrets
 import uuid
@@ -22,7 +23,7 @@ from models.auth_access import (
     JudgeLoginRequest,
     TeamDirectLoginLink,
 )
-from models.options import ProcessOption, ThemeOption
+from models.options import ProcessOption, SystemSetting, ThemeOption
 from models.score import Score
 from models.scoring import ScoringCategorySetting
 from models.team import Project, Team, TeamMember
@@ -37,6 +38,131 @@ from services.scoring_config_service import (
 from utils.auth import authenticate_admin, role_required
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+PRESENTATION_TIME_LIMIT_KEY = "presentation_time_limit_seconds"
+PRESENTATION_TIMER_STATE_KEY = "presentation_timer_state_v1"
+DEFAULT_PRESENTATION_TIME_LIMIT_SECONDS = 300
+
+
+def _format_duration(total_seconds):
+    total_seconds = max(0, int(total_seconds or 0))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+def _get_system_setting(key):
+    return SystemSetting.query.filter_by(key=key).first()
+
+
+def _set_system_setting(key, value):
+    row = _get_system_setting(key)
+    if row is None:
+        row = SystemSetting(key=key, value=str(value))
+        db.session.add(row)
+    else:
+        row.value = str(value)
+    return row
+
+
+def _get_presentation_time_limit_seconds():
+    row = _get_system_setting(PRESENTATION_TIME_LIMIT_KEY)
+    if not row:
+        return DEFAULT_PRESENTATION_TIME_LIMIT_SECONDS
+
+    try:
+        parsed_value = int(row.value)
+    except (TypeError, ValueError):
+        return DEFAULT_PRESENTATION_TIME_LIMIT_SECONDS
+
+    return min(3600, max(60, parsed_value))
+
+
+def _get_default_timer_state():
+    return {
+        "running": False,
+        "elapsed_seconds": 0,
+        "started_at": None,
+    }
+
+
+def _normalize_timer_state(raw_state):
+    if not isinstance(raw_state, dict):
+        return _get_default_timer_state()
+
+    state = _get_default_timer_state()
+    state["running"] = bool(raw_state.get("running", False))
+
+    try:
+        state["elapsed_seconds"] = max(0, int(raw_state.get("elapsed_seconds", 0)))
+    except (TypeError, ValueError):
+        state["elapsed_seconds"] = 0
+
+    started_at = raw_state.get("started_at")
+    state["started_at"] = started_at if isinstance(started_at, str) else None
+    return state
+
+
+def _get_timer_state_payload():
+    row = _get_system_setting(PRESENTATION_TIMER_STATE_KEY)
+    if not row:
+        return _get_default_timer_state()
+
+    try:
+        parsed = json.loads(row.value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return _get_default_timer_state()
+
+    return _normalize_timer_state(parsed)
+
+
+def _compute_timer_elapsed_seconds(timer_state, now_utc=None):
+    state = _normalize_timer_state(timer_state)
+    elapsed = int(state["elapsed_seconds"])
+    if not state["running"]:
+        return elapsed
+
+    started_at_iso = state.get("started_at")
+    if not started_at_iso:
+        return elapsed
+
+    try:
+        started_at = datetime.fromisoformat(started_at_iso)
+    except ValueError:
+        return elapsed
+
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+
+    now_utc = now_utc or _utcnow()
+    delta_seconds = int((now_utc - started_at).total_seconds())
+    return max(0, elapsed + max(0, delta_seconds))
+
+
+def _save_timer_state(timer_state):
+    normalized = _normalize_timer_state(timer_state)
+    _set_system_setting(PRESENTATION_TIMER_STATE_KEY, json.dumps(normalized))
+    return normalized
+
+
+def _timer_state_snapshot(now_utc=None):
+    now_utc = now_utc or _utcnow()
+    time_limit_seconds = _get_presentation_time_limit_seconds()
+    state = _get_timer_state_payload()
+    elapsed_seconds = _compute_timer_elapsed_seconds(state, now_utc=now_utc)
+    overtime_seconds = max(0, elapsed_seconds - time_limit_seconds)
+
+    return {
+        "running": bool(state.get("running")),
+        "elapsed_seconds": elapsed_seconds,
+        "elapsed_text": _format_duration(elapsed_seconds),
+        "time_limit_seconds": time_limit_seconds,
+        "time_limit_text": _format_duration(time_limit_seconds),
+        "overtime_seconds": overtime_seconds,
+        "overtime_text": _format_duration(overtime_seconds),
+    }
 
 
 @admin_bp.get("/dashboard")
@@ -54,6 +180,18 @@ def dashboard():
 def _seed_defaults_after_kill_switch():
     db.session.add(ProcessOption(name="General"))
     db.session.add(ThemeOption(name="General"))
+    db.session.add(
+        SystemSetting(
+            key=PRESENTATION_TIME_LIMIT_KEY,
+            value=str(DEFAULT_PRESENTATION_TIME_LIMIT_SECONDS),
+        )
+    )
+    db.session.add(
+        SystemSetting(
+            key=PRESENTATION_TIMER_STATE_KEY,
+            value=json.dumps(_get_default_timer_state()),
+        )
+    )
 
     for category_key, defaults in DEFAULT_SCORING_RULES.items():
         db.session.add(
@@ -112,6 +250,7 @@ def manage_options():
     themes = ThemeOption.query.order_by(ThemeOption.name.asc()).all()
     processes = ProcessOption.query.order_by(ProcessOption.name.asc()).all()
     scoring_definitions = get_category_definitions()
+    presentation_time_limit_seconds = _get_presentation_time_limit_seconds()
 
     return render_template(
         "admin/options.html",
@@ -120,6 +259,7 @@ def manage_options():
         themes=themes,
         processes=processes,
         scoring_definitions=scoring_definitions,
+        presentation_time_limit_seconds=presentation_time_limit_seconds,
     )
 
 
@@ -286,6 +426,32 @@ def update_scoring_options():
         db.session.rollback()
         current_app.logger.error("Scoring options update failed: %s", exc)
         flash("Unable to update scoring options.", "danger")
+
+    return redirect(url_for("admin.manage_options"))
+
+
+@admin_bp.post("/options/presentation-time-limit")
+@role_required("admin")
+def update_presentation_time_limit_option():
+    raw_limit = (request.form.get("presentation_time_limit_seconds") or "").strip()
+    try:
+        time_limit_seconds = int(raw_limit)
+    except (TypeError, ValueError):
+        flash("Presentation time limit must be a whole number of seconds.", "warning")
+        return redirect(url_for("admin.manage_options"))
+
+    if time_limit_seconds < 60 or time_limit_seconds > 3600:
+        flash("Presentation time limit must be between 60 and 3600 seconds.", "warning")
+        return redirect(url_for("admin.manage_options"))
+
+    try:
+        _set_system_setting(PRESENTATION_TIME_LIMIT_KEY, str(time_limit_seconds))
+        db.session.commit()
+        flash(f"Presentation time limit updated to {_format_duration(time_limit_seconds)}.", "success")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("Presentation time limit update failed: %s", exc)
+        flash("Unable to update presentation time limit.", "danger")
 
     return redirect(url_for("admin.manage_options"))
 
@@ -530,6 +696,7 @@ def presentation_control():
 
     pending_count = sum(1 for team in teams if not team.presentation_completed)
     completed_count = len(teams) - pending_count
+    timer_snapshot = _timer_state_snapshot()
 
     return render_template(
         "admin/presentation.html",
@@ -540,30 +707,106 @@ def presentation_control():
         next_team_id=next_team_id,
         pending_count=pending_count,
         completed_count=completed_count,
+        timer_snapshot=timer_snapshot,
     )
+
+
+@admin_bp.get("/presentation/timer/state")
+@role_required("admin", "judge")
+def presentation_timer_state():
+    try:
+        teams = _get_active_teams_for_presentation()
+        current_team = _find_default_presentation_team(teams)
+        next_pending_team = _find_next_pending_team(teams, current_team.id if current_team else None)
+        if current_team and next_pending_team and current_team.id == next_pending_team.id:
+            next_pending_team = None
+
+        snapshot = _timer_state_snapshot()
+        return jsonify(
+            {
+                "ok": True,
+                **snapshot,
+                "current_team_name": current_team.team_name if current_team else None,
+                "next_team_name": next_pending_team.team_name if next_pending_team else None,
+            }
+        )
+    except SQLAlchemyError as exc:
+        current_app.logger.error("Presentation timer state load failed: %s", exc)
+        return jsonify({"ok": False, "error": "Unable to load presentation timer state."}), 500
+
+
+@admin_bp.post("/presentation/timer/control")
+@role_required("admin")
+def control_presentation_timer():
+    payload = request.get_json(silent=True) or request.form
+    action = (payload.get("action") or "").strip().lower()
+    if action not in {"start", "pause", "reset"}:
+        return jsonify({"ok": False, "error": "Invalid timer action."}), 400
+
+    now_utc = _utcnow()
+    state = _get_timer_state_payload()
+    elapsed_seconds = _compute_timer_elapsed_seconds(state, now_utc=now_utc)
+
+    if action == "start":
+        if not bool(state.get("running")):
+            state["running"] = True
+            state["elapsed_seconds"] = elapsed_seconds
+            state["started_at"] = now_utc.isoformat()
+    elif action == "pause":
+        state["running"] = False
+        state["elapsed_seconds"] = elapsed_seconds
+        state["started_at"] = None
+    elif action == "reset":
+        state = _get_default_timer_state()
+
+    try:
+        _save_timer_state(state)
+        db.session.commit()
+        return jsonify({"ok": True, **_timer_state_snapshot(now_utc=now_utc)})
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("Presentation timer control failed: %s", exc)
+        return jsonify({"ok": False, "error": "Unable to update timer state."}), 500
 
 
 @admin_bp.post("/presentation/<int:team_id>/complete")
 @role_required("admin")
 def mark_team_presentation_complete(team_id):
+    now_utc = _utcnow()
     try:
         team = Team.query.filter_by(id=team_id, is_active=True).first()
         if not team:
             flash("Team not found or inactive.", "warning")
             return redirect(url_for("admin.presentation_control"))
 
+        timer_elapsed_seconds = _compute_timer_elapsed_seconds(_get_timer_state_payload(), now_utc=now_utc)
+        captured_duration_text = _format_duration(timer_elapsed_seconds)
+
         if not team.presentation_completed:
             team.presentation_completed = True
-            team.presentation_completed_at = _utcnow()
+            team.presentation_completed_at = now_utc
+            team.presentation_elapsed_seconds = timer_elapsed_seconds
+
+            # Prepare timer for the next team; admin manually starts when ready.
+            _save_timer_state(_get_default_timer_state())
             db.session.commit()
-            flash(f"Marked presentation completed for {team.team_name}.", "success")
         else:
             flash(f"{team.team_name} is already marked completed.", "info")
+            return redirect(url_for("admin.presentation_control", team_id=team.id))
 
         teams = _get_active_teams_for_presentation()
         next_pending_team = _find_next_pending_team(teams, team.id)
         if next_pending_team is not None:
+            flash(
+                f"{team.team_name} marked done in {captured_duration_text}. Move to next team: {next_pending_team.team_name}. Timer reset; start when ready.",
+                "success",
+            )
             return redirect(url_for("admin.presentation_control", team_id=next_pending_team.id))
+
+        flash(
+            f"{team.team_name} marked done in {captured_duration_text}. All pending teams are completed.",
+            "success",
+        )
     except SQLAlchemyError as exc:
         db.session.rollback()
         current_app.logger.error("Mark team presentation complete failed: %s", exc)
@@ -583,6 +826,7 @@ def reopen_team_presentation(team_id):
 
         team.presentation_completed = False
         team.presentation_completed_at = None
+        team.presentation_elapsed_seconds = None
         db.session.commit()
         flash(f"{team.team_name} moved back to pending queue.", "success")
     except SQLAlchemyError as exc:
@@ -602,12 +846,15 @@ def reset_presentation_queue():
                 {
                     Team.presentation_completed: False,
                     Team.presentation_completed_at: None,
+                    Team.presentation_elapsed_seconds: None,
                 },
                 synchronize_session=False,
             )
         )
+
+        _save_timer_state(_get_default_timer_state())
         db.session.commit()
-        flash(f"Presentation queue reset for {updated_count} team(s).", "success")
+        flash(f"Presentation queue reset for {updated_count} team(s). Timer reset to 00:00.", "success")
     except SQLAlchemyError as exc:
         db.session.rollback()
         current_app.logger.error("Reset presentation queue failed: %s", exc)

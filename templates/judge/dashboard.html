@@ -10,6 +10,17 @@
 
 <p class="text-muted">Select a team to score or edit your previous scores.</p>
 
+<div class="card border-0 shadow-sm mb-4">
+	<div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+		<div>
+			<div class="small text-muted text-uppercase">Live Presentation Timer (Read Only)</div>
+			<div id="judge-presentation-timer" class="h4 mb-0 fw-bold">00:00</div>
+			<div id="judge-presentation-status" class="small text-muted">Loading...</div>
+		</div>
+		<div class="small text-muted" id="judge-presentation-team-text">Current team: -</div>
+	</div>
+</div>
+
 <div class="table-responsive">
 	<table class="table table-bordered table-striped align-middle">
 		<thead class="table-dark">
@@ -67,6 +78,25 @@
 <script>
 (function () {
 	const heartbeatUrl = "{{ url_for('judge.heartbeat') }}";
+	const presentationStateUrl = "{{ url_for('admin.presentation_timer_state') }}";
+	const timerElement = document.getElementById('judge-presentation-timer');
+	const timerStatusElement = document.getElementById('judge-presentation-status');
+	const timerTeamElement = document.getElementById('judge-presentation-team-text');
+
+	function twoDigits(value) {
+		return String(value).padStart(2, '0');
+	}
+
+	function formatTime(totalSeconds) {
+		const safeValue = Math.max(0, Number(totalSeconds || 0));
+		const hours = Math.floor(safeValue / 3600);
+		const minutes = Math.floor((safeValue % 3600) / 60);
+		const seconds = safeValue % 60;
+		if (hours > 0) {
+			return twoDigits(hours) + ':' + twoDigits(minutes) + ':' + twoDigits(seconds);
+		}
+		return twoDigits(minutes) + ':' + twoDigits(seconds);
+	}
 
 	async function sendHeartbeat() {
 		try {
@@ -81,8 +111,50 @@
 		}
 	}
 
+	async function refreshPresentationTimer() {
+		if (!timerElement || !timerStatusElement || !timerTeamElement) {
+			return;
+		}
+
+		try {
+			const response = await fetch(presentationStateUrl, { cache: 'no-store' });
+			if (!response.ok) {
+				return;
+			}
+
+			const payload = await response.json();
+			if (!payload || payload.ok === false) {
+				return;
+			}
+
+			const elapsedSeconds = Number(payload.elapsed_seconds || 0);
+			const timeLimitSeconds = Number(payload.time_limit_seconds || 300);
+			const overtimeSeconds = Math.max(0, elapsedSeconds - timeLimitSeconds);
+			timerElement.textContent = formatTime(elapsedSeconds);
+
+			if (overtimeSeconds > 0) {
+				timerStatusElement.className = 'small text-danger fw-semibold';
+				timerStatusElement.textContent = 'Overtime +' + formatTime(overtimeSeconds);
+			} else if (payload.running) {
+				timerStatusElement.className = 'small text-success fw-semibold';
+				timerStatusElement.textContent = 'Running';
+			} else {
+				timerStatusElement.className = 'small text-secondary fw-semibold';
+				timerStatusElement.textContent = 'Paused';
+			}
+
+			const currentTeamName = payload.current_team_name || '-';
+			const nextTeamName = payload.next_team_name || '-';
+			timerTeamElement.textContent = 'Current team: ' + currentTeamName + ' | Next team: ' + nextTeamName;
+		} catch (error) {
+			// Ignore temporary polling errors.
+		}
+	}
+
 	sendHeartbeat();
+	refreshPresentationTimer();
 	setInterval(sendHeartbeat, 10000);
+	setInterval(refreshPresentationTimer, 2000);
 })();
 </script>
 {% endblock %}

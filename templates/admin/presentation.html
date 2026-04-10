@@ -34,18 +34,22 @@
                 <div class="d-flex align-items-center justify-content-between">
                     <div>
                         <div class="small text-muted text-uppercase">Timer</div>
-                        <div id="presentation-clock" class="presentation-clock">00:00</div>
+                        <div id="presentation-clock" class="presentation-clock">{{ timer_snapshot.elapsed_text }}</div>
+                        <div class="small text-muted">Limit: <span id="presentation-limit-text">{{ timer_snapshot.time_limit_text }}</span></div>
                     </div>
-                    <div class="d-flex gap-2">
-                        <button type="button" id="timer-toggle" class="btn btn-sm btn-outline-danger rounded-pill px-3">
+                    <div class="d-flex gap-2 flex-wrap justify-content-end">
+                        <button type="button" id="timer-start" class="btn btn-sm btn-danger rounded-pill px-3">
+                            <i class="bi bi-play-fill"></i> Start
+                        </button>
+                        <button type="button" id="timer-pause" class="btn btn-sm btn-outline-danger rounded-pill px-3">
                             <i class="bi bi-pause-fill"></i> Pause
                         </button>
                         <button type="button" id="timer-reset" class="btn btn-sm btn-light rounded-pill px-3 border">
-                            <i class="bi bi-arrow-counterclockwise"></i>
+                            <i class="bi bi-arrow-counterclockwise"></i> Reset
                         </button>
                     </div>
                 </div>
-                <div id="timer-status" class="small mt-2 text-success fw-semibold">Within 5 minute slot</div>
+                <div id="timer-status" class="small mt-2 fw-semibold">{{ 'Running' if timer_snapshot.running else 'Paused' }}</div>
             </div>
         </div>
     </div>
@@ -107,6 +111,16 @@
                     <div class="col-md-6">
                         <div class="text-muted small">Project</div>
                         <div class="fw-semibold">{{ current_team.project.project_title if current_team.project else '-' }}</div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="text-muted small">Captured Time</div>
+                        <div class="fw-semibold">
+                            {% if current_team.presentation_elapsed_seconds is not none %}
+                                {{ '%02d:%02d'|format((current_team.presentation_elapsed_seconds // 60), (current_team.presentation_elapsed_seconds % 60)) }}
+                            {% else %}
+                                --:--
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="col-12">
                         <div class="text-muted small">Team Members</div>
@@ -212,6 +226,7 @@
                         <th>Team</th>
                         <th>Project</th>
                         <th>Members</th>
+                        <th style="width: 120px;">Time</th>
                         <th style="width: 120px;">Status</th>
                         <th style="width: 130px;">Open</th>
                     </tr>
@@ -237,6 +252,13 @@
                             {% endif %}
                         </td>
                         <td>
+                            {% if team.presentation_elapsed_seconds is not none %}
+                                {{ '%02d:%02d'|format((team.presentation_elapsed_seconds // 60), (team.presentation_elapsed_seconds % 60)) }}
+                            {% else %}
+                                --:--
+                            {% endif %}
+                        </td>
+                        <td>
                             {% if team.presentation_completed %}
                             <span class="badge text-bg-success">Completed</span>
                             {% else %}
@@ -251,7 +273,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="6" class="text-center text-muted py-4">No teams available.</td>
+                        <td colspan="7" class="text-center text-muted py-4">No teams available.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -262,7 +284,11 @@
 
 <div
     id="presentation-timer-config"
-    data-default-seconds="300"
+    data-initial-running="{{ 'true' if timer_snapshot.running else 'false' }}"
+    data-initial-elapsed-seconds="{{ timer_snapshot.elapsed_seconds }}"
+    data-time-limit-seconds="{{ timer_snapshot.time_limit_seconds }}"
+    data-state-endpoint="{{ url_for('admin.presentation_timer_state') }}"
+    data-control-endpoint="{{ url_for('admin.control_presentation_timer') }}"
     data-previous-url="{{ url_for('admin.presentation_control', team_id=previous_team_id) if previous_team_id else '' }}"
     data-next-url="{{ url_for('admin.presentation_control', team_id=next_team_id) if next_team_id else '' }}"
     hidden>
@@ -308,107 +334,132 @@ body.presentation-overtime .navbar {
     const config = document.getElementById('presentation-timer-config');
     const clockElement = document.getElementById('presentation-clock');
     const statusElement = document.getElementById('timer-status');
-    const toggleButton = document.getElementById('timer-toggle');
+    const startButton = document.getElementById('timer-start');
+    const pauseButton = document.getElementById('timer-pause');
     const resetButton = document.getElementById('timer-reset');
-    if (!config || !clockElement || !statusElement || !toggleButton || !resetButton) {
+    const limitTextElement = document.getElementById('presentation-limit-text');
+    if (!config || !clockElement || !statusElement || !startButton || !pauseButton || !resetButton) {
         return;
     }
 
-    const storageKey = 'admin_presentation_timer_v1';
-    const defaultSeconds = Number(config.dataset.defaultSeconds || '300');
+    const stateEndpoint = config.dataset.stateEndpoint || '';
+    const controlEndpoint = config.dataset.controlEndpoint || '';
     const previousUrl = config.dataset.previousUrl || '';
     const nextUrl = config.dataset.nextUrl || '';
+    const defaultTimeLimitSeconds = Number(config.dataset.timeLimitSeconds || '300');
 
-    function nowMs() {
-        return Date.now();
-    }
-
-    function loadState() {
-        try {
-            const raw = localStorage.getItem(storageKey);
-            if (!raw) {
-                return {
-                    elapsedMs: 0,
-                    running: true,
-                    lastTickMs: nowMs(),
-                };
-            }
-
-            const parsed = JSON.parse(raw);
-            return {
-                elapsedMs: Number(parsed.elapsedMs || 0),
-                running: Boolean(parsed.running),
-                lastTickMs: Number(parsed.lastTickMs || nowMs()),
-            };
-        } catch (error) {
-            return {
-                elapsedMs: 0,
-                running: true,
-                lastTickMs: nowMs(),
-            };
-        }
-    }
-
-    const state = loadState();
-
-    function persistState() {
-        localStorage.setItem(storageKey, JSON.stringify(state));
-    }
+    let timerState = {
+        running: String(config.dataset.initialRunning || 'false') === 'true',
+        elapsed_seconds: Number(config.dataset.initialElapsedSeconds || '0'),
+        time_limit_seconds: defaultTimeLimitSeconds,
+    };
 
     function twoDigits(value) {
         return String(value).padStart(2, '0');
     }
 
     function formatTime(totalSeconds) {
-        const minutes = Math.floor(totalSeconds / 60);
-        const seconds = totalSeconds % 60;
+        const safeValue = Math.max(0, Number(totalSeconds || 0));
+        const hours = Math.floor(safeValue / 3600);
+        const minutes = Math.floor((safeValue % 3600) / 60);
+        const seconds = safeValue % 60;
+        if (hours > 0) {
+            return twoDigits(hours) + ':' + twoDigits(minutes) + ':' + twoDigits(seconds);
+        }
         return twoDigits(minutes) + ':' + twoDigits(seconds);
     }
 
-    function updateTimerVisuals() {
-        const elapsedSeconds = Math.max(0, Math.floor(state.elapsedMs / 1000));
-        const overtimeSeconds = elapsedSeconds - defaultSeconds;
-        clockElement.textContent = formatTime(elapsedSeconds);
+    function applyTimerState(payload) {
+        timerState.running = Boolean(payload.running);
+        timerState.elapsed_seconds = Math.max(0, Number(payload.elapsed_seconds || 0));
+        timerState.time_limit_seconds = Math.max(60, Number(payload.time_limit_seconds || defaultTimeLimitSeconds));
 
-        if (overtimeSeconds >= 0) {
+        const overtimeSeconds = Math.max(0, timerState.elapsed_seconds - timerState.time_limit_seconds);
+        clockElement.textContent = formatTime(timerState.elapsed_seconds);
+        if (limitTextElement) {
+            limitTextElement.textContent = formatTime(timerState.time_limit_seconds);
+        }
+
+        if (overtimeSeconds > 0) {
             document.body.classList.add('presentation-overtime');
             statusElement.className = 'small mt-2 text-danger fw-semibold';
             statusElement.textContent = 'Overtime +' + formatTime(overtimeSeconds);
-        } else {
+        } else if (timerState.running) {
             document.body.classList.remove('presentation-overtime');
             statusElement.className = 'small mt-2 text-success fw-semibold';
-            statusElement.textContent = 'Within 5 minute slot';
+            statusElement.textContent = 'Running';
+        } else {
+            document.body.classList.remove('presentation-overtime');
+            statusElement.className = 'small mt-2 text-secondary fw-semibold';
+            statusElement.textContent = 'Paused (manual start)';
         }
 
-        toggleButton.innerHTML = state.running
-            ? '<i class="bi bi-pause-fill"></i> Pause'
-            : '<i class="bi bi-play-fill"></i> Resume';
+        startButton.disabled = timerState.running;
+        pauseButton.disabled = !timerState.running;
     }
 
-    function tick() {
-        const currentMs = nowMs();
-        if (state.running) {
-            const delta = Math.max(0, currentMs - state.lastTickMs);
-            state.elapsedMs += delta;
+    async function fetchTimerState() {
+        if (!stateEndpoint) {
+            return;
         }
-        state.lastTickMs = currentMs;
-        updateTimerVisuals();
-        persistState();
+
+        try {
+            const response = await fetch(stateEndpoint, { cache: 'no-store' });
+            if (!response.ok) {
+                return;
+            }
+
+            const payload = await response.json();
+            if (!payload || payload.ok === false) {
+                return;
+            }
+
+            applyTimerState(payload);
+        } catch (error) {
+            // Ignore temporary network failures and retry next poll.
+        }
     }
 
-    toggleButton.addEventListener('click', function () {
-        state.running = !state.running;
-        state.lastTickMs = nowMs();
-        updateTimerVisuals();
-        persistState();
+    async function sendTimerAction(action) {
+        if (!controlEndpoint) {
+            return;
+        }
+
+        try {
+            const response = await fetch(controlEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ action: action }),
+            });
+
+            if (!response.ok) {
+                return;
+            }
+
+            const payload = await response.json();
+            if (payload && payload.ok !== false) {
+                applyTimerState(payload);
+            }
+        } catch (error) {
+            // Ignore temporary network failures and retry next action.
+        }
+    }
+
+    startButton.addEventListener('click', function () {
+        sendTimerAction('start');
+    });
+
+    pauseButton.addEventListener('click', function () {
+        sendTimerAction('pause');
     });
 
     resetButton.addEventListener('click', function () {
-        state.elapsedMs = 0;
-        state.running = true;
-        state.lastTickMs = nowMs();
-        updateTimerVisuals();
-        persistState();
+        if (!window.confirm('Reset timer to 00:00?')) {
+            return;
+        }
+        sendTimerAction('reset');
     });
 
     document.addEventListener('keydown', function (event) {
@@ -435,8 +486,9 @@ body.presentation-overtime .navbar {
         }
     });
 
-    updateTimerVisuals();
-    setInterval(tick, 1000);
+    applyTimerState(timerState);
+    fetchTimerState();
+    setInterval(fetchTimerState, 1500);
 })();
 </script>
 {% endblock %}

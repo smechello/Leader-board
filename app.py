@@ -106,6 +106,15 @@ def ensure_database_compatibility(app):
 			connection.execute(
 				text(
 					"""
+					ALTER TABLE teams
+					ADD COLUMN IF NOT EXISTS presentation_elapsed_seconds INTEGER
+					"""
+				)
+			)
+
+			connection.execute(
+				text(
+					"""
 					UPDATE teams
 					SET sort_order = id::INTEGER
 					WHERE sort_order IS NULL OR sort_order = 0
@@ -149,6 +158,23 @@ def ensure_database_compatibility(app):
 					)
 					"""
 				)
+			)
+
+			connection.execute(
+				text(
+					"""
+					CREATE TABLE IF NOT EXISTS system_settings (
+						id BIGSERIAL PRIMARY KEY,
+						key VARCHAR(120) NOT NULL UNIQUE,
+						value TEXT NOT NULL,
+						updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+					)
+					"""
+				)
+			)
+
+			connection.execute(
+				text("CREATE INDEX IF NOT EXISTS idx_system_settings_key ON system_settings (key)")
 			)
 
 			connection.execute(
@@ -348,6 +374,26 @@ def ensure_database_compatibility(app):
 					FROM teams
 					WHERE process IS NOT NULL AND BTRIM(process) <> ''
 					ON CONFLICT (name) DO NOTHING
+					"""
+				)
+			)
+
+			connection.execute(
+				text(
+					"""
+					INSERT INTO system_settings (key, value)
+					VALUES ('presentation_time_limit_seconds', '300')
+					ON CONFLICT (key) DO NOTHING
+					"""
+				)
+			)
+
+			connection.execute(
+				text(
+					"""
+					INSERT INTO system_settings (key, value)
+					VALUES ('presentation_timer_state_v1', '{"running": false, "elapsed_seconds": 0, "started_at": null}')
+					ON CONFLICT (key) DO NOTHING
 					"""
 				)
 			)

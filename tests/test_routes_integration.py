@@ -9,7 +9,7 @@ from werkzeug.security import generate_password_hash
 from models import db
 from models.audit import AuditLog
 from models.auth_access import JudgeDirectLoginLink, JudgeLoginRequest, TeamDirectLoginLink
-from models.options import ProcessOption, ThemeOption
+from models.options import ProcessOption, SystemSetting, ThemeOption
 from models.presence import JudgePresence
 from models.score import SCORE_CATEGORIES, Score
 from models.scoring import ScoringCategorySetting
@@ -354,6 +354,30 @@ def test_admin_presentation_control_flow(app, admin_client):
         team_two_id = team_two.id
 
     try:
+        timer_state_response = admin_client.get(
+            "/admin/presentation/timer/state",
+            follow_redirects=False,
+        )
+        assert timer_state_response.status_code == 200
+        timer_state_payload = timer_state_response.get_json()
+        assert timer_state_payload.get("ok") is True
+
+        timer_start_response = admin_client.post(
+            "/admin/presentation/timer/control",
+            json={"action": "start"},
+            follow_redirects=False,
+        )
+        assert timer_start_response.status_code == 200
+        assert timer_start_response.get_json().get("running") is True
+
+        timer_pause_response = admin_client.post(
+            "/admin/presentation/timer/control",
+            json={"action": "pause"},
+            follow_redirects=False,
+        )
+        assert timer_pause_response.status_code == 200
+        assert timer_pause_response.get_json().get("running") is False
+
         page_response = admin_client.get(
             f"/admin/presentation?team_id={team_one_id}",
             follow_redirects=False,
@@ -377,6 +401,7 @@ def test_admin_presentation_control_flow(app, admin_client):
             assert refreshed_team_one is not None
             assert refreshed_team_one.presentation_completed is True
             assert refreshed_team_one.presentation_completed_at is not None
+            assert refreshed_team_one.presentation_elapsed_seconds is not None
 
         reopen_response = admin_client.post(
             f"/admin/presentation/{team_one_id}/reopen",
@@ -389,6 +414,7 @@ def test_admin_presentation_control_flow(app, admin_client):
             assert reopened_team_one is not None
             assert reopened_team_one.presentation_completed is False
             assert reopened_team_one.presentation_completed_at is None
+            assert reopened_team_one.presentation_elapsed_seconds is None
 
         admin_client.post(
             f"/admin/presentation/{team_one_id}/complete",
@@ -414,10 +440,30 @@ def test_admin_presentation_control_flow(app, admin_client):
             assert refreshed_team_two.presentation_completed is False
             assert refreshed_team_one.presentation_completed_at is None
             assert refreshed_team_two.presentation_completed_at is None
+            assert refreshed_team_one.presentation_elapsed_seconds is None
+            assert refreshed_team_two.presentation_elapsed_seconds is None
     finally:
         with app.app_context():
             Team.query.filter(Team.id.in_([team_one_id, team_two_id])).delete(synchronize_session=False)
             db.session.commit()
+
+
+def test_admin_updates_presentation_time_limit_option(app, admin_client):
+    response = admin_client.post(
+        "/admin/options/presentation-time-limit",
+        data={"presentation_time_limit_seconds": "420"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+
+    with app.app_context():
+        setting = SystemSetting.query.filter_by(key="presentation_time_limit_seconds").first()
+        assert setting is not None
+        assert setting.value == "420"
+
+        # Keep tests isolated by restoring default value.
+        setting.value = "300"
+        db.session.commit()
 
 
 def test_judge_score_edit_and_lock_flow(app, client):

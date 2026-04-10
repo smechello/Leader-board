@@ -13,6 +13,36 @@
     </div>
 </div>
 
+<div class="card border-0 shadow-sm rounded-4 mb-4">
+    <div class="card-header bg-white border-0 pt-4 px-4 pb-0">
+        <h5 class="fw-bold mb-1"><i class="bi bi-stopwatch me-2 text-danger"></i>Presentation Timer Defaults</h5>
+        <p class="text-muted small mb-0">Set the default time limit used on the admin presentation page for each team slot.</p>
+    </div>
+    <div class="card-body p-4">
+        <form method="post" action="{{ url_for('admin.update_presentation_time_limit_option') }}" class="row g-3 align-items-end" novalidate>
+            <div class="col-md-4">
+                <label for="presentation_time_limit_seconds" class="form-label">Time Limit (Seconds)</label>
+                <input
+                    type="number"
+                    class="form-control"
+                    id="presentation_time_limit_seconds"
+                    name="presentation_time_limit_seconds"
+                    min="60"
+                    max="3600"
+                    value="{{ presentation_time_limit_seconds }}"
+                    required>
+            </div>
+            <div class="col-md-4">
+                <div class="small text-muted mb-2">Current Default</div>
+                <div class="fw-semibold">{{ '%02d:%02d'|format((presentation_time_limit_seconds // 60), (presentation_time_limit_seconds % 60)) }}</div>
+            </div>
+            <div class="col-md-4">
+                <button type="submit" class="btn btn-outline-danger"><i class="bi bi-save me-1"></i>Save Timer Limit</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="card border-0 shadow-sm rounded-4 mb-4" id="scoring-settings">
     <div class="card-header bg-white border-0 pt-4 px-4 pb-0">
         <h5 class="fw-bold mb-1"><i class="bi bi-list-check me-2 text-success"></i>Scoring Rules</h5>
