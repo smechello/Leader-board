@@ -4,6 +4,9 @@
 
 {% block content %}
 <h2 class="mb-3">Admin Dashboard</h2>
-<p class="text-muted">Use this area to manage judges and move to team management in Step 5.</p>
-<a class="btn btn-primary" href="{{ url_for('admin.manage_judges') }}">Manage Judges</a>
+<p class="text-muted">Use this area to manage judges and complete team setup for the ideathon.</p>
+<div class="d-flex gap-2 flex-wrap">
+	<a class="btn btn-primary" href="{{ url_for('admin.list_teams') }}">Manage Teams</a>
+	<a class="btn btn-outline-primary" href="{{ url_for('admin.manage_judges') }}">Manage Judges</a>
+</div>
 {% endblock %}

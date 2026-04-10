@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+
+{% block title %}Manage Team Members{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Members - {{ team.team_name }}</h2>
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin.list_teams') }}">Back to Teams</a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h3 class="h5 mb-3">Add Team Member</h3>
+        <form method="post" class="row g-3" novalidate>
+            <div class="col-md-6">
+                <label for="full_name" class="form-label">Full Name</label>
+                <input type="text" id="full_name" name="full_name" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+                <label for="email" class="form-label">Email</label>
+                <input type="email" id="email" name="email" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+                <label for="phone" class="form-label">Phone (Optional)</label>
+                <input type="text" id="phone" name="phone" class="form-control">
+            </div>
+            <div class="col-md-6">
+                <label for="department_or_class" class="form-label">Department/Class (Optional)</label>
+                <input type="text" id="department_or_class" name="department_or_class" class="form-control">
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Add Member</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <h3 class="h5 mb-3">Existing Members</h3>
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped align-middle mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th>ID</th>
+                        <th>Full Name</th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>Department/Class</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for member in members %}
+                    <tr>
+                        <td>{{ member.id }}</td>
+                        <td>{{ member.full_name }}</td>
+                        <td>{{ member.email }}</td>
+                        <td>{{ member.phone or '-' }}</td>
+                        <td>{{ member.department_or_class or '-' }}</td>
+                        <td>
+                            <div class="d-flex gap-1 flex-wrap">
+                                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin.edit_team_member', team_id=team.id, member_id=member.id) }}">Edit</a>
+                                <form method="post" action="{{ url_for('admin.delete_team_member', team_id=team.id, member_id=member.id) }}" onsubmit="return confirm('Delete this member?');">
+                                    <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted">No team members found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

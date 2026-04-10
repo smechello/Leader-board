@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ 'Add Team' if mode == 'create' else 'Edit Team' }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">{{ 'Add Team' if mode == 'create' else 'Edit Team' }}</h2>
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin.list_teams') }}">Back to Teams</a>
+</div>
+
+<form method="post" class="card">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label for="team_name" class="form-label">Team Name</label>
+                <input type="text" class="form-control" id="team_name" name="team_name" value="{{ form_data.get('team_name', team.team_name if team else '') }}" required>
+            </div>
+            <div class="col-md-6">
+                <label for="theme" class="form-label">Theme</label>
+                <input type="text" class="form-control" id="theme" name="theme" value="{{ form_data.get('theme', team.theme if team else '') }}" required>
+            </div>
+
+            <div class="col-12">
+                <label for="project_title" class="form-label">Project Title</label>
+                <input type="text" class="form-control" id="project_title" name="project_title" value="{{ form_data.get('project_title', team.project.project_title if team and team.project else '') }}" required>
+            </div>
+
+            <div class="col-12">
+                <label for="problem_statement" class="form-label">Problem Statement</label>
+                <textarea class="form-control" id="problem_statement" name="problem_statement" rows="4" required>{{ form_data.get('problem_statement', team.project.problem_statement if team and team.project else '') }}</textarea>
+            </div>
+
+            <div class="col-12">
+                <label for="project_summary" class="form-label">Project Summary</label>
+                <textarea class="form-control" id="project_summary" name="project_summary" rows="4" required>{{ form_data.get('project_summary', team.project.project_summary if team and team.project else '') }}</textarea>
+            </div>
+
+            <div class="col-md-4">
+                <label for="repository_url" class="form-label">Repository URL (Optional)</label>
+                <input type="url" class="form-control" id="repository_url" name="repository_url" value="{{ form_data.get('repository_url', team.project.repository_url if team and team.project and team.project.repository_url else '') }}">
+            </div>
+            <div class="col-md-4">
+                <label for="demo_url" class="form-label">Demo URL (Optional)</label>
+                <input type="url" class="form-control" id="demo_url" name="demo_url" value="{{ form_data.get('demo_url', team.project.demo_url if team and team.project and team.project.demo_url else '') }}">
+            </div>
+            <div class="col-md-4">
+                <label for="notes_url" class="form-label">Notes URL (Optional)</label>
+                <input type="url" class="form-control" id="notes_url" name="notes_url" value="{{ form_data.get('notes_url', team.project.notes_url if team and team.project and team.project.notes_url else '') }}">
+            </div>
+
+            <div class="col-12">
+                {% set checked_active = form_data.get('is_active') if form_data else None %}
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="is_active" name="is_active"
+                        {% if checked_active is not none %}
+                            {% if checked_active == 'on' %}checked{% endif %}
+                        {% elif team %}
+                            {% if team.is_active %}checked{% endif %}
+                        {% else %}
+                            checked
+                        {% endif %}>
+                    <label class="form-check-label" for="is_active">Team is active</label>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="card-footer bg-white d-flex justify-content-end gap-2">
+        <a class="btn btn-outline-secondary" href="{{ url_for('admin.list_teams') }}">Cancel</a>
+        <button type="submit" class="btn btn-primary">{{ 'Create Team' if mode == 'create' else 'Save Changes' }}</button>
+    </div>
+</form>
+{% endblock %}
