@@ -1,4 +1,6 @@
-from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from datetime import datetime, timezone
+
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import check_password_hash
@@ -27,7 +29,23 @@ def home():
 @public_bp.get("/scoreboard")
 def scoreboard():
     rows = get_live_scoreboard_rows()
-    return render_template("public/scoreboard.html", rows=rows)
+    return render_template(
+        "public/scoreboard.html",
+        rows=rows,
+        refresh_interval_ms=5000,
+        generated_at=datetime.now(timezone.utc),
+    )
+
+
+@public_bp.get("/api/scoreboard")
+def scoreboard_data():
+    rows = get_live_scoreboard_rows()
+    return jsonify(
+        {
+            "rows": rows,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
 
 
 @public_bp.route("/login", methods=["GET", "POST"])

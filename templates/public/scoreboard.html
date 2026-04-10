@@ -3,9 +3,23 @@
 {% block title %}Live Scoreboard{% endblock %}
 
 {% block content %}
-<h2 class="mb-3">Live Scoreboard</h2>
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+    <h2 class="mb-0 scoreboard-title">Live Scoreboard</h2>
+    <div class="scoreboard-meta text-muted">
+        Auto-refresh every {{ (refresh_interval_ms / 1000)|int }}s
+    </div>
+</div>
+<p class="text-muted mb-3">
+    Public view, no login required. Rankings update automatically when judges submit scores.
+</p>
+
+<div class="mb-3 p-2 border rounded bg-light small d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span>Last updated: <strong id="scoreboard-last-updated">{{ generated_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</strong></span>
+    <span id="scoreboard-status" class="text-muted">Live</span>
+</div>
+
 <div class="table-responsive">
-    <table class="table table-striped table-bordered align-middle">
+    <table class="table table-striped table-bordered align-middle scoreboard-table">
         <thead class="table-dark">
             <tr>
                 <th>Rank</th>
@@ -14,7 +28,7 @@
                 <th>Total Score</th>
             </tr>
         </thead>
-        <tbody>
+        <tbody id="scoreboard-body">
             {% for row in rows %}
             <tr>
                 <td>{{ row.rank }}</td>
@@ -30,4 +44,84 @@
         </tbody>
     </table>
 </div>
+
+<div
+    id="scoreboard-config"
+    data-refresh-ms="{{ refresh_interval_ms }}"
+    data-endpoint="{{ url_for('public.scoreboard_data') }}"
+    hidden>
+</div>
+
+<script>
+(function () {
+    const configElement = document.getElementById('scoreboard-config');
+    const refreshIntervalMs = Number(configElement.dataset.refreshMs || '5000');
+    const endpointUrl = configElement.dataset.endpoint || '/api/scoreboard';
+
+    const tableBody = document.getElementById('scoreboard-body');
+    const lastUpdated = document.getElementById('scoreboard-last-updated');
+    const statusElement = document.getElementById('scoreboard-status');
+
+    function renderRows(rows) {
+        tableBody.innerHTML = '';
+
+        if (!rows || rows.length === 0) {
+            const emptyRow = document.createElement('tr');
+            emptyRow.innerHTML = '<td colspan="4" class="text-center text-muted">No active teams found.</td>';
+            tableBody.appendChild(emptyRow);
+            return;
+        }
+
+        rows.forEach((row) => {
+            const tr = document.createElement('tr');
+
+            const rankCell = document.createElement('td');
+            rankCell.textContent = String(row.rank);
+            tr.appendChild(rankCell);
+
+            const nameCell = document.createElement('td');
+            nameCell.textContent = String(row.team_name);
+            tr.appendChild(nameCell);
+
+            const themeCell = document.createElement('td');
+            themeCell.textContent = String(row.theme);
+            tr.appendChild(themeCell);
+
+            const scoreCell = document.createElement('td');
+            scoreCell.textContent = Number(row.total_score).toFixed(2);
+            tr.appendChild(scoreCell);
+
+            tableBody.appendChild(tr);
+        });
+    }
+
+    function toUtcText(isoString) {
+        const date = new Date(isoString);
+        if (Number.isNaN(date.getTime())) {
+            return 'unknown';
+        }
+
+        return date.toISOString().replace('T', ' ').replace('Z', ' UTC');
+    }
+
+    async function refreshScoreboard() {
+        try {
+            statusElement.textContent = 'Syncing...';
+            const response = await fetch(endpointUrl, { cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error('Scoreboard refresh failed');
+            }
+
+            const payload = await response.json();
+            renderRows(payload.rows || []);
+            lastUpdated.textContent = toUtcText(payload.generated_at);
+            statusElement.textContent = 'Live';
+        } catch (error) {
+            statusElement.textContent = 'Refresh failed. Retrying...';
+        }
+    }
+
+    setInterval(refreshScoreboard, refreshIntervalMs);
+})();
+</script>
 {% endblock %}

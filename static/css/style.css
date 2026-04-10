@@ -9,3 +9,23 @@ body {
 .table {
     background-color: #fff;
 }
+
+.scoreboard-title {
+    letter-spacing: 0.02em;
+    font-weight: 700;
+}
+
+.scoreboard-meta {
+    font-size: 0.95rem;
+}
+
+.scoreboard-table td,
+.scoreboard-table th {
+    white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+    .scoreboard-title {
+        font-size: 1.45rem;
+    }
+}
