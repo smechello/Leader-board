@@ -8,6 +8,7 @@ class Team(db.Model):
 
     id = db.Column(db.BigInteger, primary_key=True)
     team_name = db.Column(db.String(120), nullable=False, unique=True)
+    process = db.Column(db.String(120), nullable=False, default="General")
     theme = db.Column(db.String(120), nullable=False)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now(), nullable=False)

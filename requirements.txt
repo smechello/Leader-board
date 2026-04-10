@@ -5,3 +5,4 @@ SQLAlchemy==2.0.37
 python-dotenv==1.0.1
 psycopg2-binary==2.9.10
 gunicorn==22.0.0
+pytest==8.3.5

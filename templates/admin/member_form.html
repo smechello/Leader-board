@@ -12,20 +12,8 @@
     <div class="card-body">
         <div class="row g-3">
             <div class="col-md-6">
-                <label for="full_name" class="form-label">Full Name</label>
+                <label for="full_name" class="form-label">Name</label>
                 <input type="text" class="form-control" id="full_name" name="full_name" value="{{ request.form.get('full_name', member.full_name) }}" required>
-            </div>
-            <div class="col-md-6">
-                <label for="email" class="form-label">Email</label>
-                <input type="email" class="form-control" id="email" name="email" value="{{ request.form.get('email', member.email) }}" required>
-            </div>
-            <div class="col-md-6">
-                <label for="phone" class="form-label">Phone (Optional)</label>
-                <input type="text" class="form-control" id="phone" name="phone" value="{{ request.form.get('phone', member.phone if member.phone else '') }}">
-            </div>
-            <div class="col-md-6">
-                <label for="department_or_class" class="form-label">Department/Class (Optional)</label>
-                <input type="text" class="form-control" id="department_or_class" name="department_or_class" value="{{ request.form.get('department_or_class', member.department_or_class if member.department_or_class else '') }}">
             </div>
         </div>
     </div>

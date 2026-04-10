@@ -2,10 +2,11 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
+from sqlalchemy import or_
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import check_password_hash
 
-from models.user import User
+from models.user import Judge, User
 from services.scoring_service import get_live_scoreboard_rows, get_scoreboard_tie_break_rule
 from utils.auth import authenticate_admin
 
@@ -60,7 +61,7 @@ def login():
         password = request.form.get("password", "")
 
         if not username or not password:
-            flash("Username and password are required.", "warning")
+            flash("Name or username and password are required.", "warning")
             return render_template("public/login.html")
 
         admin_user = authenticate_admin(username, password)
@@ -70,11 +71,16 @@ def login():
             return redirect(url_for("admin.dashboard"))
 
         try:
-            judge_user = User.query.filter_by(
-                username=username,
-                role="judge",
-                is_active=True,
-            ).first()
+            judge_user = (
+                User.query.join(Judge, Judge.user_id == User.id)
+                .filter(
+                    User.role == "judge",
+                    User.is_active.is_(True),
+                    Judge.is_active.is_(True),
+                    or_(User.username == username, Judge.display_name == username),
+                )
+                .first()
+            )
         except SQLAlchemyError as exc:
             current_app.logger.error("Judge login lookup failed: %s", exc)
             flash(

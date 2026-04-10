@@ -16,8 +16,31 @@
                 <input type="text" class="form-control" id="team_name" name="team_name" value="{{ form_data.get('team_name', team.team_name if team else '') }}" required>
             </div>
             <div class="col-md-6">
+                {% set selected_process = form_data.get('process', team.process if team else '') %}
+                <label for="process" class="form-label">Process</label>
+                <select class="form-select" id="process" name="process" required>
+                    <option value="">Select Process</option>
+                    {% for option in process_options %}
+                    <option value="{{ option }}" {% if option == selected_process %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                    {% if selected_process and selected_process not in process_options %}
+                    <option value="{{ selected_process }}" selected>{{ selected_process }}</option>
+                    {% endif %}
+                </select>
+            </div>
+
+            <div class="col-md-6">
+                {% set selected_theme = form_data.get('theme', team.theme if team else '') %}
                 <label for="theme" class="form-label">Theme</label>
-                <input type="text" class="form-control" id="theme" name="theme" value="{{ form_data.get('theme', team.theme if team else '') }}" required>
+                <select class="form-select" id="theme" name="theme" required>
+                    <option value="">Select Theme</option>
+                    {% for option in theme_options %}
+                    <option value="{{ option }}" {% if option == selected_theme %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                    {% if selected_theme and selected_theme not in theme_options %}
+                    <option value="{{ selected_theme }}" selected>{{ selected_theme }}</option>
+                    {% endif %}
+                </select>
             </div>
 
             <div class="col-12">

@@ -19,6 +19,7 @@
                     <a class="nav-link" href="{{ url_for('admin.dashboard') }}">Admin Dashboard</a>
                     <a class="nav-link" href="{{ url_for('admin.list_teams') }}">Manage Teams</a>
                     <a class="nav-link" href="{{ url_for('admin.manage_judges') }}">Manage Judges</a>
+                    <a class="nav-link" href="{{ url_for('admin.manage_options') }}">Manage Options</a>
                 {% elif current_user.role == 'judge' %}
                     <a class="nav-link" href="{{ url_for('judge.dashboard') }}">Judge Dashboard</a>
                 {% endif %}

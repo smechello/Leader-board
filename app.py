@@ -44,6 +44,76 @@ def verify_database_connection(app):
 		raise RuntimeError(f"Database connection failed: {exc}") from exc
 
 
+def ensure_database_compatibility(app):
+	"""Apply lightweight idempotent schema updates for backward compatibility."""
+	try:
+		with db.engine.begin() as connection:
+			connection.execute(
+				text(
+					"""
+					ALTER TABLE teams
+					ADD COLUMN IF NOT EXISTS process VARCHAR(120) NOT NULL DEFAULT 'General'
+					"""
+				)
+			)
+
+			connection.execute(
+				text(
+					"""
+					CREATE TABLE IF NOT EXISTS theme_options (
+						id BIGSERIAL PRIMARY KEY,
+						name VARCHAR(120) NOT NULL UNIQUE,
+						created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+					)
+					"""
+				)
+			)
+
+			connection.execute(
+				text(
+					"""
+					CREATE TABLE IF NOT EXISTS process_options (
+						id BIGSERIAL PRIMARY KEY,
+						name VARCHAR(120) NOT NULL UNIQUE,
+						created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+					)
+					"""
+				)
+			)
+
+			connection.execute(
+				text(
+					"""
+					INSERT INTO theme_options (name)
+					SELECT DISTINCT theme
+					FROM teams
+					WHERE theme IS NOT NULL AND BTRIM(theme) <> ''
+					ON CONFLICT (name) DO NOTHING
+					"""
+				)
+			)
+
+			connection.execute(
+				text("INSERT INTO process_options (name) VALUES ('General') ON CONFLICT (name) DO NOTHING")
+			)
+
+			connection.execute(
+				text(
+					"""
+					INSERT INTO process_options (name)
+					SELECT DISTINCT process
+					FROM teams
+					WHERE process IS NOT NULL AND BTRIM(process) <> ''
+					ON CONFLICT (name) DO NOTHING
+					"""
+				)
+			)
+
+		app.logger.info("Database compatibility checks completed.")
+	except SQLAlchemyError as exc:
+		raise RuntimeError(f"Database compatibility migration failed: {exc}") from exc
+
+
 def create_app():
 	validate_required_environment()
 
@@ -70,6 +140,7 @@ def create_app():
 
 	with app.app_context():
 		verify_database_connection(app)
+		ensure_database_compatibility(app)
 
 	return app
 

@@ -13,20 +13,8 @@
         <h3 class="h5 mb-3">Add Team Member</h3>
         <form method="post" class="row g-3" novalidate>
             <div class="col-md-6">
-                <label for="full_name" class="form-label">Full Name</label>
+                <label for="full_name" class="form-label">Name</label>
                 <input type="text" id="full_name" name="full_name" class="form-control" required>
-            </div>
-            <div class="col-md-6">
-                <label for="email" class="form-label">Email</label>
-                <input type="email" id="email" name="email" class="form-control" required>
-            </div>
-            <div class="col-md-6">
-                <label for="phone" class="form-label">Phone (Optional)</label>
-                <input type="text" id="phone" name="phone" class="form-control">
-            </div>
-            <div class="col-md-6">
-                <label for="department_or_class" class="form-label">Department/Class (Optional)</label>
-                <input type="text" id="department_or_class" name="department_or_class" class="form-control">
             </div>
             <div class="col-12">
                 <button type="submit" class="btn btn-primary">Add Member</button>
@@ -43,10 +31,7 @@
                 <thead class="table-dark">
                     <tr>
                         <th>ID</th>
-                        <th>Full Name</th>
-                        <th>Email</th>
-                        <th>Phone</th>
-                        <th>Department/Class</th>
+                        <th>Name</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -55,9 +40,6 @@
                     <tr>
                         <td>{{ member.id }}</td>
                         <td>{{ member.full_name }}</td>
-                        <td>{{ member.email }}</td>
-                        <td>{{ member.phone or '-' }}</td>
-                        <td>{{ member.department_or_class or '-' }}</td>
                         <td>
                             <div class="d-flex gap-1 flex-wrap">
                                 <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin.edit_team_member', team_id=team.id, member_id=member.id) }}">Edit</a>
@@ -69,7 +51,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="6" class="text-center text-muted">No team members found.</td>
+                        <td colspan="3" class="text-center text-muted">No team members found.</td>
                     </tr>
                     {% endfor %}
                 </tbody>

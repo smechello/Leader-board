@@ -18,7 +18,11 @@
 </p>
 
 <div class="mb-3 p-2 border rounded bg-light small d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <span>Last updated: <strong id="scoreboard-last-updated">{{ generated_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</strong></span>
+    <label class="form-check-label d-flex align-items-center gap-2" for="auto-update-toggle">
+        <input class="form-check-input m-0" type="checkbox" id="auto-update-toggle" checked>
+        Auto update
+    </label>
+    <button id="manual-refresh-btn" class="btn btn-sm btn-outline-secondary" type="button">Refresh Now</button>
     <span id="scoreboard-status" class="text-muted">Live</span>
 </div>
 
@@ -27,9 +31,10 @@
         <thead class="table-dark">
             <tr>
                 <th>Rank</th>
-                <th>Team</th>
+                <th>Team Name</th>
+                <th>Process</th>
                 <th>Theme</th>
-                <th>Total Score</th>
+                <th>Score</th>
             </tr>
         </thead>
         <tbody id="scoreboard-body">
@@ -37,12 +42,13 @@
             <tr>
                 <td>{{ row.rank }}</td>
                 <td>{{ row.team_name }}</td>
+                <td>{{ row.process }}</td>
                 <td>{{ row.theme }}</td>
                 <td>{{ '%.2f'|format(row.total_score) }}</td>
             </tr>
             {% else %}
             <tr>
-                <td colspan="4" class="text-center text-muted">No active teams found.</td>
+                <td colspan="5" class="text-center text-muted">No active teams found.</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -63,7 +69,8 @@
     const endpointUrl = configElement.dataset.endpoint || '/api/scoreboard';
 
     const tableBody = document.getElementById('scoreboard-body');
-    const lastUpdated = document.getElementById('scoreboard-last-updated');
+    const autoUpdateToggle = document.getElementById('auto-update-toggle');
+    const manualRefreshBtn = document.getElementById('manual-refresh-btn');
     const statusElement = document.getElementById('scoreboard-status');
 
     function renderRows(rows) {
@@ -71,7 +78,7 @@
 
         if (!rows || rows.length === 0) {
             const emptyRow = document.createElement('tr');
-            emptyRow.innerHTML = '<td colspan="4" class="text-center text-muted">No active teams found.</td>';
+            emptyRow.innerHTML = '<td colspan="5" class="text-center text-muted">No active teams found.</td>';
             tableBody.appendChild(emptyRow);
             return;
         }
@@ -87,6 +94,10 @@
             nameCell.textContent = String(row.team_name);
             tr.appendChild(nameCell);
 
+            const processCell = document.createElement('td');
+            processCell.textContent = String(row.process || '-');
+            tr.appendChild(processCell);
+
             const themeCell = document.createElement('td');
             themeCell.textContent = String(row.theme);
             tr.appendChild(themeCell);
@@ -99,16 +110,12 @@
         });
     }
 
-    function toUtcText(isoString) {
-        const date = new Date(isoString);
-        if (Number.isNaN(date.getTime())) {
-            return 'unknown';
+    async function refreshScoreboard() {
+        if (!autoUpdateToggle.checked) {
+            statusElement.textContent = 'Paused';
+            return;
         }
 
-        return date.toISOString().replace('T', ' ').replace('Z', ' UTC');
-    }
-
-    async function refreshScoreboard() {
         try {
             statusElement.textContent = 'Syncing...';
             const response = await fetch(endpointUrl, { cache: 'no-store' });
@@ -118,12 +125,29 @@
 
             const payload = await response.json();
             renderRows(payload.rows || []);
-            lastUpdated.textContent = toUtcText(payload.generated_at);
             statusElement.textContent = 'Live';
         } catch (error) {
             statusElement.textContent = 'Refresh failed. Retrying...';
         }
     }
+
+    autoUpdateToggle.addEventListener('change', () => {
+        if (autoUpdateToggle.checked) {
+            refreshScoreboard();
+        } else {
+            statusElement.textContent = 'Paused';
+        }
+    });
+
+    manualRefreshBtn.addEventListener('click', async () => {
+        const previous = autoUpdateToggle.checked;
+        autoUpdateToggle.checked = true;
+        await refreshScoreboard();
+        autoUpdateToggle.checked = previous;
+        if (!previous) {
+            statusElement.textContent = 'Paused';
+        }
+    });
 
     setInterval(refreshScoreboard, refreshIntervalMs);
 })();

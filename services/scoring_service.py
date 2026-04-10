@@ -35,6 +35,7 @@ def get_live_scoreboard_rows():
             db.session.query(
                 Team.id,
                 Team.team_name,
+                Team.process,
                 Team.theme,
                 total_score,
                 business_value_score,
@@ -42,7 +43,7 @@ def get_live_scoreboard_rows():
             )
             .outerjoin(Score, Score.team_id == Team.id)
             .filter(Team.is_active.is_(True))
-            .group_by(Team.id, Team.team_name, Team.theme)
+            .group_by(Team.id, Team.team_name, Team.process, Team.theme)
             .order_by(
                 total_score.desc(),
                 business_value_score.desc(),
@@ -59,6 +60,7 @@ def get_live_scoreboard_rows():
         {
             "rank": index,
             "team_name": row.team_name,
+            "process": row.process,
             "theme": row.theme,
             "total_score": float(row.total_score or 0.0),
             "business_value_score": float(row.business_value_score or 0.0),

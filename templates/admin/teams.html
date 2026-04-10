@@ -14,6 +14,7 @@
             <tr>
                 <th>ID</th>
                 <th>Team Name</th>
+                <th>Process</th>
                 <th>Theme</th>
                 <th>Project Title</th>
                 <th>Members</th>
@@ -26,6 +27,7 @@
             <tr>
                 <td>{{ team.id }}</td>
                 <td>{{ team.team_name }}</td>
+                <td>{{ team.process }}</td>
                 <td>{{ team.theme }}</td>
                 <td>{{ team.project.project_title if team.project else '-' }}</td>
                 <td>{{ team.members|length }}</td>
@@ -53,7 +55,7 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="7" class="text-center text-muted">No teams found.</td>
+                <td colspan="8" class="text-center text-muted">No teams found.</td>
             </tr>
             {% endfor %}
         </tbody>
