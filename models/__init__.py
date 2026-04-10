@@ -5,6 +5,7 @@ db = SQLAlchemy()
 
 
 from .audit import AuditLog  # noqa: E402,F401
+from .auth_access import JudgeDirectLoginLink, JudgeLoginRequest  # noqa: E402,F401
 from .options import ProcessOption, ThemeOption  # noqa: E402,F401
 from .score import Score  # noqa: E402,F401
 from .team import Project, Team, TeamMember  # noqa: E402,F401

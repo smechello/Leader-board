@@ -1,15 +1,25 @@
-from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from datetime import datetime, timedelta, timezone
+import re
+import secrets
+import uuid
+from urllib.parse import urlparse
+
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user
-from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload
-import re
-import uuid
 from werkzeug.security import generate_password_hash
-from urllib.parse import urlparse
 
 from models import db
 from models.audit import AuditLog
+from models.auth_access import (
+    LOGIN_REQUEST_STATUS_APPROVED,
+    LOGIN_REQUEST_STATUS_EXPIRED,
+    LOGIN_REQUEST_STATUS_PENDING,
+    LOGIN_REQUEST_STATUS_REJECTED,
+    JudgeDirectLoginLink,
+    JudgeLoginRequest,
+)
 from models.options import ProcessOption, ThemeOption
 from models.score import Score
 from models.team import Project, Team, TeamMember
@@ -233,6 +243,48 @@ def _generate_unique_username_from_name(display_name):
         candidate = f"{base}_{suffix}"
 
     return candidate
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
+
+
+def _admin_actor_name():
+    return getattr(current_user, "username", "admin")
+
+
+def _get_pending_login_requests(limit=25):
+    return (
+        db.session.query(JudgeLoginRequest, Judge, User)
+        .join(Judge, Judge.id == JudgeLoginRequest.judge_id)
+        .join(User, User.id == Judge.user_id)
+        .filter(
+            JudgeLoginRequest.status == LOGIN_REQUEST_STATUS_PENDING,
+            Judge.is_active.is_(True),
+            User.is_active.is_(True),
+            User.role == "judge",
+        )
+        .order_by(JudgeLoginRequest.created_at.asc())
+        .limit(limit)
+        .all()
+    )
+
+
+def _active_direct_links_by_judge(now_utc):
+    links = (
+        JudgeDirectLoginLink.query.filter(
+            JudgeDirectLoginLink.revoked_at.is_(None),
+            JudgeDirectLoginLink.expires_at > now_utc,
+        )
+        .order_by(JudgeDirectLoginLink.created_at.desc())
+        .all()
+    )
+
+    link_map = {}
+    for link in links:
+        link_map.setdefault(link.judge_id, []).append(link)
+
+    return link_map
 
 
 def _get_theme_and_process_names():
@@ -602,6 +654,8 @@ def manage_judges():
 
         return redirect(url_for("admin.manage_judges"))
 
+    now_utc = _utcnow()
+
     try:
         judges = (
             db.session.query(User, Judge)
@@ -610,12 +664,212 @@ def manage_judges():
             .order_by(User.id.asc())
             .all()
         )
+        active_links_by_judge = _active_direct_links_by_judge(now_utc)
+        pending_login_requests = _get_pending_login_requests(limit=50)
     except SQLAlchemyError as exc:
         current_app.logger.error("Judge list query failed: %s", exc)
         flash("Unable to load judges. Ensure database schema is applied.", "warning")
         judges = []
+        active_links_by_judge = {}
+        pending_login_requests = []
 
-    return render_template("admin/judges.html", judges=judges)
+    return render_template(
+        "admin/judges.html",
+        judges=judges,
+        active_links_by_judge=active_links_by_judge,
+        pending_login_requests=pending_login_requests,
+        now_utc=now_utc,
+    )
+
+
+@admin_bp.post("/judges/<int:user_id>/password")
+@role_required("admin")
+def update_judge_password(user_id):
+    new_password = request.form.get("new_password", "")
+
+    if len(new_password) < 8:
+        flash("Password must be at least 8 characters.", "warning")
+        return redirect(url_for("admin.manage_judges"))
+
+    try:
+        user = User.query.filter_by(id=user_id, role="judge").first()
+        if not user or not user.judge_profile:
+            flash("Judge not found.", "warning")
+            return redirect(url_for("admin.manage_judges"))
+
+        user.password_hash = generate_password_hash(new_password)
+        db.session.commit()
+        flash(f"Password updated for {user.judge_profile.display_name}.", "success")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("Judge password update failed: %s", exc)
+        flash("Unable to update judge password.", "danger")
+
+    return redirect(url_for("admin.manage_judges"))
+
+
+@admin_bp.post("/judges/<int:user_id>/direct-link")
+@role_required("admin")
+def create_judge_direct_link(user_id):
+    lifespan_text = (request.form.get("lifespan_minutes") or "15").strip()
+
+    try:
+        lifespan_minutes = int(lifespan_text)
+    except ValueError:
+        flash("Link lifespan must be a number of minutes.", "warning")
+        return redirect(url_for("admin.manage_judges"))
+
+    if lifespan_minutes < 1 or lifespan_minutes > 1440:
+        flash("Link lifespan must be between 1 and 1440 minutes.", "warning")
+        return redirect(url_for("admin.manage_judges"))
+
+    try:
+        user = User.query.filter_by(id=user_id, role="judge").first()
+        judge = user.judge_profile if user else None
+        if not user or not judge or not user.is_active or not judge.is_active:
+            flash("Judge not found or inactive.", "warning")
+            return redirect(url_for("admin.manage_judges"))
+
+        token = secrets.token_urlsafe(32)
+        expires_at = _utcnow() + timedelta(minutes=lifespan_minutes)
+
+        link = JudgeDirectLoginLink(
+            judge_id=judge.id,
+            token=token,
+            expires_at=expires_at,
+            created_by_admin=_admin_actor_name(),
+        )
+        db.session.add(link)
+        db.session.commit()
+
+        link_url = url_for("public.judge_direct_login", token=token, _external=True)
+        flash(
+            f"Direct login link created for {judge.display_name}: {link_url} (valid {lifespan_minutes} minutes)",
+            "info",
+        )
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("Direct link generation failed: %s", exc)
+        flash("Unable to create direct login link.", "danger")
+
+    return redirect(url_for("admin.manage_judges"))
+
+
+@admin_bp.post("/judges/direct-link/<int:link_id>/revoke")
+@role_required("admin")
+def revoke_judge_direct_link(link_id):
+    try:
+        link = JudgeDirectLoginLink.query.filter_by(id=link_id).first()
+        if not link:
+            flash("Direct login link not found.", "warning")
+            return redirect(url_for("admin.manage_judges"))
+
+        if link.revoked_at is not None:
+            flash("Direct login link is already revoked.", "info")
+            return redirect(url_for("admin.manage_judges"))
+
+        link.revoked_at = _utcnow()
+        link.revoke_reason = "admin_revoked"
+        db.session.commit()
+        flash("Direct login link revoked.", "success")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("Direct link revoke failed: %s", exc)
+        flash("Unable to revoke direct login link.", "danger")
+
+    return redirect(url_for("admin.manage_judges"))
+
+
+@admin_bp.post("/login-requests/<int:request_id>/approve")
+@role_required("admin")
+def approve_login_request(request_id):
+    try:
+        login_request = JudgeLoginRequest.query.filter_by(id=request_id).first()
+        if not login_request:
+            flash("Login request not found.", "warning")
+            return redirect(url_for("admin.manage_judges") + "#pending-login-requests")
+
+        if login_request.status != LOGIN_REQUEST_STATUS_PENDING:
+            flash("Only pending requests can be approved.", "warning")
+            return redirect(url_for("admin.manage_judges") + "#pending-login-requests")
+
+        now_utc = _utcnow()
+        login_request.status = LOGIN_REQUEST_STATUS_APPROVED
+        login_request.decided_at = now_utc
+        login_request.decided_by_admin = _admin_actor_name()
+        login_request.approval_expires_at = now_utc + timedelta(minutes=10)
+        db.session.commit()
+        flash("Login request approved. Judge can now login directly.", "success")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("Approve login request failed: %s", exc)
+        flash("Unable to approve login request.", "danger")
+
+    return redirect(url_for("admin.manage_judges") + "#pending-login-requests")
+
+
+@admin_bp.post("/login-requests/<int:request_id>/reject")
+@role_required("admin")
+def reject_login_request(request_id):
+    try:
+        login_request = JudgeLoginRequest.query.filter_by(id=request_id).first()
+        if not login_request:
+            flash("Login request not found.", "warning")
+            return redirect(url_for("admin.manage_judges") + "#pending-login-requests")
+
+        if login_request.status != LOGIN_REQUEST_STATUS_PENDING:
+            flash("Only pending requests can be rejected.", "warning")
+            return redirect(url_for("admin.manage_judges") + "#pending-login-requests")
+
+        login_request.status = LOGIN_REQUEST_STATUS_REJECTED
+        login_request.decided_at = _utcnow()
+        login_request.decided_by_admin = _admin_actor_name()
+        login_request.approval_expires_at = None
+        db.session.commit()
+        flash("Login request rejected.", "info")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("Reject login request failed: %s", exc)
+        flash("Unable to reject login request.", "danger")
+
+    return redirect(url_for("admin.manage_judges") + "#pending-login-requests")
+
+
+@admin_bp.get("/notifications/login-requests")
+@role_required("admin")
+def login_request_notifications():
+    try:
+        now_utc = _utcnow()
+
+        expired_rows = JudgeLoginRequest.query.filter(
+            JudgeLoginRequest.status == LOGIN_REQUEST_STATUS_APPROVED,
+            JudgeLoginRequest.approval_expires_at.isnot(None),
+            JudgeLoginRequest.approval_expires_at <= now_utc,
+            JudgeLoginRequest.consumed_at.is_(None),
+        ).all()
+        for item in expired_rows:
+            item.status = LOGIN_REQUEST_STATUS_EXPIRED
+            item.decided_at = now_utc
+
+        if expired_rows:
+            db.session.commit()
+
+        rows = _get_pending_login_requests(limit=10)
+        payload_items = [
+            {
+                "request_id": login_request.id,
+                "judge_name": judge.display_name,
+                "login_key": user.username,
+                "requested_login": login_request.requested_login,
+                "created_at": login_request.created_at.isoformat() if login_request.created_at else None,
+            }
+            for login_request, judge, user in rows
+        ]
+
+        return jsonify({"count": len(payload_items), "items": payload_items})
+    except SQLAlchemyError as exc:
+        current_app.logger.error("Login request notifications failed: %s", exc)
+        return jsonify({"count": 0, "items": []}), 500
 
 
 @admin_bp.post("/judges/<int:user_id>/delete")

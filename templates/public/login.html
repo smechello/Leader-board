@@ -12,7 +12,7 @@
                 <form method="post" novalidate>
                     <div class="mb-3">
                         <label for="username" class="form-label">Name / Username</label>
-                        <input type="text" class="form-control" id="username" name="username" required>
+                        <input type="text" class="form-control" id="username" name="username" value="{{ prefill_username or '' }}" required>
                     </div>
                     <div class="mb-3">
                         <label for="password" class="form-label">Password</label>
@@ -20,8 +20,198 @@
                     </div>
                     <button type="submit" class="btn btn-primary w-100">Sign In</button>
                 </form>
+
+                <hr class="my-4">
+
+                <div>
+                    <p class="small text-muted mb-2">
+                        If your direct login link is expired or unavailable, raise a direct login request for admin approval.
+                    </p>
+                    <button type="button" id="raise-login-request-btn" class="btn btn-outline-secondary w-100">
+                        Request Direct Login
+                    </button>
+                    <div id="login-request-status" class="small mt-3 text-muted"></div>
+                </div>
             </div>
         </div>
     </div>
 </div>
+
+<div
+    id="login-request-config"
+    data-request-endpoint="{{ url_for('public.request_login_access') }}"
+    data-status-endpoint-base="{{ url_for('public.login_request_status', request_id=0)[:-1] }}"
+    data-consume-endpoint="{{ url_for('public.consume_login_request') }}"
+    data-poll-interval-ms="{{ login_request_poll_interval_ms or 4000 }}"
+    hidden>
+</div>
+
+<script>
+(function () {
+    const requestButton = document.getElementById('raise-login-request-btn');
+    const statusElement = document.getElementById('login-request-status');
+    const usernameInput = document.getElementById('username');
+    const configElement = document.getElementById('login-request-config');
+
+    const requestEndpoint = configElement.dataset.requestEndpoint;
+    const statusEndpointBase = configElement.dataset.statusEndpointBase;
+    const consumeEndpoint = configElement.dataset.consumeEndpoint;
+    const defaultPollMs = Number(configElement.dataset.pollIntervalMs || '4000');
+
+    let activeRequest = null;
+    let pollHandle = null;
+
+    function setStatus(text, kind) {
+        statusElement.textContent = text;
+        statusElement.className = 'small mt-3';
+        if (kind === 'success') {
+            statusElement.classList.add('text-success');
+            return;
+        }
+        if (kind === 'danger') {
+            statusElement.classList.add('text-danger');
+            return;
+        }
+        if (kind === 'warning') {
+            statusElement.classList.add('text-warning');
+            return;
+        }
+        statusElement.classList.add('text-muted');
+    }
+
+    function stopPolling() {
+        if (pollHandle) {
+            clearInterval(pollHandle);
+            pollHandle = null;
+        }
+    }
+
+    async function consumeApprovedRequest() {
+        if (!activeRequest) {
+            return;
+        }
+
+        try {
+            const response = await fetch(consumeEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    request_id: activeRequest.requestId,
+                    request_key: activeRequest.requestKey,
+                }),
+            });
+
+            const payload = await response.json();
+            if (!response.ok) {
+                setStatus(payload.error || 'Direct login failed after approval. Try password login.', 'danger');
+                return;
+            }
+
+            setStatus('Approved. Logging you in now...', 'success');
+            window.location.href = payload.redirect_url || '/judge/dashboard';
+        } catch (error) {
+            setStatus('Network error while completing direct login.', 'danger');
+        }
+    }
+
+    async function pollRequestStatus() {
+        if (!activeRequest) {
+            return;
+        }
+
+        const statusUrl = `${statusEndpointBase}${activeRequest.requestId}?key=${encodeURIComponent(activeRequest.requestKey)}`;
+        try {
+            const response = await fetch(statusUrl, { cache: 'no-store' });
+            const payload = await response.json();
+            if (!response.ok) {
+                setStatus(payload.error || 'Unable to check request status.', 'danger');
+                return;
+            }
+
+            const status = payload.status;
+            if (status === 'pending') {
+                setStatus('Request sent. Waiting for admin approval...', 'warning');
+                return;
+            }
+
+            if (status === 'approved') {
+                stopPolling();
+                await consumeApprovedRequest();
+                return;
+            }
+
+            if (status === 'rejected') {
+                stopPolling();
+                setStatus('Admin rejected the request. Please use password login.', 'danger');
+                requestButton.disabled = false;
+                return;
+            }
+
+            if (status === 'expired') {
+                stopPolling();
+                setStatus('Approval expired. Please raise a new request.', 'danger');
+                requestButton.disabled = false;
+                return;
+            }
+
+            if (status === 'consumed') {
+                stopPolling();
+                setStatus('This request is already used. Please sign in again if needed.', 'warning');
+                requestButton.disabled = false;
+                return;
+            }
+
+            setStatus(`Request status: ${status}`, 'warning');
+        } catch (error) {
+            setStatus('Network issue while checking admin approval.', 'danger');
+        }
+    }
+
+    async function raiseLoginRequest() {
+        const username = (usernameInput.value || '').trim();
+        if (!username) {
+            setStatus('Enter your name or username before raising request.', 'warning');
+            usernameInput.focus();
+            return;
+        }
+
+        requestButton.disabled = true;
+        setStatus('Sending request to admin...', 'warning');
+
+        try {
+            const response = await fetch(requestEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ username }),
+            });
+
+            const payload = await response.json();
+            if (!response.ok) {
+                requestButton.disabled = false;
+                setStatus(payload.error || 'Unable to raise login request.', 'danger');
+                return;
+            }
+
+            activeRequest = {
+                requestId: payload.request_id,
+                requestKey: payload.request_key,
+            };
+
+            setStatus('Request sent. Waiting for admin approval...', 'warning');
+            stopPolling();
+            pollHandle = setInterval(pollRequestStatus, Number(payload.poll_interval_ms || defaultPollMs));
+            pollRequestStatus();
+        } catch (error) {
+            requestButton.disabled = false;
+            setStatus('Network error while raising login request.', 'danger');
+        }
+    }
+
+    requestButton.addEventListener('click', raiseLoginRequest);
+})();
+</script>
 {% endblock %}

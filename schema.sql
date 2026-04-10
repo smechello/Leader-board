@@ -53,6 +53,31 @@ CREATE TABLE process_options (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE judge_direct_login_links (
+    id BIGSERIAL PRIMARY KEY,
+    judge_id BIGINT NOT NULL REFERENCES judges(id) ON DELETE CASCADE,
+    token VARCHAR(128) NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ,
+    revoke_reason VARCHAR(120),
+    last_used_at TIMESTAMPTZ,
+    created_by_admin VARCHAR(80),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE judge_login_requests (
+    id BIGSERIAL PRIMARY KEY,
+    judge_id BIGINT NOT NULL REFERENCES judges(id) ON DELETE CASCADE,
+    request_key VARCHAR(128) NOT NULL UNIQUE,
+    requested_login VARCHAR(120),
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    decided_at TIMESTAMPTZ,
+    decided_by_admin VARCHAR(80),
+    approval_expires_at TIMESTAMPTZ,
+    consumed_at TIMESTAMPTZ
+);
+
 CREATE TABLE team_members (
     id BIGSERIAL PRIMARY KEY,
     team_id BIGINT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -118,6 +143,10 @@ CREATE INDEX idx_scores_judge_id ON scores (judge_id);
 CREATE INDEX idx_scores_category ON scores (category);
 CREATE INDEX idx_audit_logs_actor_user_id ON audit_logs (actor_user_id);
 CREATE INDEX idx_audit_logs_entity ON audit_logs (entity_type, entity_id);
+CREATE INDEX idx_judge_direct_login_links_judge_id ON judge_direct_login_links (judge_id);
+CREATE INDEX idx_judge_direct_login_links_expires_at ON judge_direct_login_links (expires_at);
+CREATE INDEX idx_judge_login_requests_judge_id ON judge_login_requests (judge_id);
+CREATE INDEX idx_judge_login_requests_status ON judge_login_requests (status);
 
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$

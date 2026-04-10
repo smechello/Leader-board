@@ -20,6 +20,10 @@
                     <a class="nav-link" href="{{ url_for('admin.list_teams') }}">Manage Teams</a>
                     <a class="nav-link" href="{{ url_for('admin.manage_judges') }}">Manage Judges</a>
                     <a class="nav-link" href="{{ url_for('admin.manage_options') }}">Manage Options</a>
+                    <a class="nav-link" href="{{ url_for('admin.manage_judges') }}#pending-login-requests">
+                        Login Requests
+                        <span id="admin-login-request-badge" class="badge text-bg-warning ms-1" style="display: none;">0</span>
+                    </a>
                 {% elif current_user.role == 'judge' %}
                     <a class="nav-link" href="{{ url_for('judge.dashboard') }}">Judge Dashboard</a>
                 {% endif %}
@@ -49,5 +53,52 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% if current_user.is_authenticated and current_user.role == 'admin' %}
+<div id="admin-notification-config" data-login-request-endpoint="{{ url_for('admin.login_request_notifications') }}" hidden></div>
+<script>
+(function () {
+    const configElement = document.getElementById('admin-notification-config');
+    const badgeElement = document.getElementById('admin-login-request-badge');
+    if (!configElement || !badgeElement) {
+        return;
+    }
+
+    const endpoint = configElement.dataset.loginRequestEndpoint;
+
+    function updateBadge(count) {
+        if (!Number.isFinite(count) || count <= 0) {
+            badgeElement.style.display = 'none';
+            badgeElement.textContent = '0';
+            return;
+        }
+
+        badgeElement.style.display = 'inline-block';
+        badgeElement.textContent = String(count);
+    }
+
+    async function refreshNotifications() {
+        try {
+            const response = await fetch(endpoint, { cache: 'no-store' });
+            if (!response.ok) {
+                return;
+            }
+
+            const payload = await response.json();
+            updateBadge(Number(payload.count || 0));
+
+            const localCountBadge = document.getElementById('pending-request-count');
+            if (localCountBadge) {
+                localCountBadge.textContent = String(Number(payload.count || 0));
+            }
+        } catch (error) {
+            // Ignore temporary polling errors and retry in next interval.
+        }
+    }
+
+    refreshNotifications();
+    setInterval(refreshNotifications, 5000);
+})();
+</script>
+{% endif %}
 </body>
 </html>

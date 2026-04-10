@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+
+{% block title %}Judge Direct Login{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-12 col-md-7 col-lg-6">
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <h2 class="h4 mb-3">Confirm Judge Login</h2>
+                <p class="mb-2">This direct link is for <strong>{{ judge_name }}</strong>.</p>
+                <p class="text-muted small mb-3">Login key: {{ username_hint }} | Link expires at {{ expires_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</p>
+                <p class="mb-4">Are you the correct judge for this link?</p>
+
+                <form method="post" class="d-flex gap-2 flex-wrap">
+                    <button type="submit" name="decision" value="yes" class="btn btn-success">Yes, continue</button>
+                    <button type="submit" name="decision" value="no" class="btn btn-outline-danger">No, expire this link</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
