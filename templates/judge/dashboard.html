@@ -63,4 +63,26 @@
 		</tbody>
 	</table>
 </div>
+
+<script>
+(function () {
+	const heartbeatUrl = "{{ url_for('judge.heartbeat') }}";
+
+	async function sendHeartbeat() {
+		try {
+			await fetch(heartbeatUrl, {
+				method: 'POST',
+				headers: {
+					'X-Requested-With': 'XMLHttpRequest',
+				},
+			});
+		} catch (error) {
+			// Ignore transient heartbeat failures.
+		}
+	}
+
+	sendHeartbeat();
+	setInterval(sendHeartbeat, 10000);
+})();
+</script>
 {% endblock %}

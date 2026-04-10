@@ -16,10 +16,22 @@ from models.auth_access import (
     LOGIN_REQUEST_STATUS_PENDING,
     JudgeDirectLoginLink,
     JudgeLoginRequest,
+    TeamDirectLoginLink,
 )
+from models.score import SCORE_CATEGORIES, Score
+from models.team import Team, TeamMember
 from models.user import Judge, User
+from services.presence_service import mark_judge_offline, mark_judge_online
+from services.scoring_config_service import CATEGORY_LABELS, get_category_definitions
 from services.scoring_service import get_live_scoreboard_rows, get_scoreboard_tie_break_rule
 from utils.auth import authenticate_admin
+from utils.team_auth import (
+    authenticate_team,
+    get_logged_in_team,
+    login_team,
+    logout_team,
+    team_login_required,
+)
 
 
 public_bp = Blueprint("public", __name__)
@@ -137,6 +149,8 @@ def login():
                 )
 
             login_user(judge_user)
+            if judge_user.judge_profile:
+                mark_judge_online(judge_user.judge_profile.id)
             flash("Judge login successful.", "success")
             return redirect(url_for("judge.dashboard"))
 
@@ -199,6 +213,7 @@ def judge_direct_login(token):
                 return redirect(url_for("public.login", username=username_hint))
 
             login_user(judge_user)
+            mark_judge_online(judge_profile.id)
             flash("Direct login successful.", "success")
             return redirect(url_for("judge.dashboard"))
 
@@ -356,6 +371,7 @@ def consume_login_request():
         db.session.commit()
 
         login_user(judge_user)
+        mark_judge_online(judge_profile.id)
         return jsonify({"status": request_row.status, "redirect_url": url_for("judge.dashboard")})
     except SQLAlchemyError as exc:
         db.session.rollback()
@@ -363,9 +379,142 @@ def consume_login_request():
         return jsonify({"error": "Unable to complete direct login."}), 500
 
 
+@public_bp.route("/team/login", methods=["GET", "POST"])
+def team_login():
+    existing_team = get_logged_in_team()
+    if existing_team:
+        return redirect(url_for("public.team_portal"))
+
+    prefill_login_id = request.args.get("team_id", "").strip()
+
+    if request.method == "POST":
+        login_id = (request.form.get("team_login_id") or "").strip()
+        password = request.form.get("password", "")
+        prefill_login_id = login_id
+
+        if not login_id or not password:
+            flash("Team ID and password are required.", "warning")
+            return render_template("public/team_login.html", prefill_login_id=prefill_login_id)
+
+        team = authenticate_team(login_id, password)
+        if not team:
+            flash("Invalid team login credentials.", "danger")
+            return render_template("public/team_login.html", prefill_login_id=prefill_login_id)
+
+        login_team(team)
+        flash("Team login successful.", "success")
+        return redirect(url_for("public.team_portal"))
+
+    return render_template("public/team_login.html", prefill_login_id=prefill_login_id)
+
+
+@public_bp.get("/team/direct-login/<token>")
+def team_direct_login(token):
+    try:
+        direct_link = TeamDirectLoginLink.query.filter_by(token=token).first()
+    except SQLAlchemyError as exc:
+        current_app.logger.error("Team direct login link lookup failed: %s", exc)
+        flash("Team direct login is temporarily unavailable.", "danger")
+        return redirect(url_for("public.team_login"))
+
+    if not direct_link:
+        flash("This team link is invalid.", "warning")
+        return redirect(url_for("public.team_login"))
+
+    team = Team.query.filter_by(id=direct_link.team_id).first()
+    team_id_hint = team.portal_login_id if team else ""
+    now_utc = _utcnow()
+
+    if direct_link.revoked_at is not None:
+        flash("This team link is no longer active.", "warning")
+        return redirect(url_for("public.team_login", team_id=team_id_hint))
+
+    if direct_link.expires_at <= now_utc:
+        flash("This team link has expired. Please login with Team ID and password.", "warning")
+        return redirect(url_for("public.team_login", team_id=team_id_hint))
+
+    if not team or not team.is_active or not team.portal_login_id or not team.portal_password_hash:
+        flash("Team account is not ready for login.", "warning")
+        return redirect(url_for("public.team_login", team_id=team_id_hint))
+
+    try:
+        direct_link.last_used_at = now_utc
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+
+    login_team(team)
+    flash("Team direct login successful.", "success")
+    return redirect(url_for("public.team_portal"))
+
+
+@public_bp.get("/team/portal")
+@team_login_required
+def team_portal():
+    team = get_logged_in_team()
+    if not team:
+        return redirect(url_for("public.team_login"))
+
+    members = TeamMember.query.filter_by(team_id=team.id).order_by(TeamMember.id.asc()).all()
+
+    judge_rows = (
+        db.session.query(Score, Judge, User)
+        .join(Judge, Judge.id == Score.judge_id)
+        .join(User, User.id == Judge.user_id)
+        .filter(Score.team_id == team.id)
+        .order_by(Judge.display_name.asc(), Score.category.asc())
+        .all()
+    )
+
+    by_judge = {}
+    for score_row, judge, user in judge_rows:
+        judge_entry = by_judge.get(judge.id)
+        if not judge_entry:
+            judge_entry = {
+                "judge_name": judge.display_name,
+                "judge_login_key": user.username,
+                "categories": {category: None for category in SCORE_CATEGORIES},
+                "remarks": "",
+                "total_weighted": 0.0,
+            }
+            by_judge[judge.id] = judge_entry
+
+        judge_entry["categories"][score_row.category] = float(score_row.raw_score)
+        judge_entry["total_weighted"] += float(score_row.weighted_score or 0)
+        if score_row.remarks and not judge_entry["remarks"]:
+            judge_entry["remarks"] = score_row.remarks
+
+    judge_scores = sorted(by_judge.values(), key=lambda item: item["judge_name"].lower())
+    for item in judge_scores:
+        item["total_weighted"] = round(item["total_weighted"], 2)
+
+    return render_template(
+        "public/team_portal.html",
+        team=team,
+        members=members,
+        category_keys=SCORE_CATEGORIES,
+        category_labels=CATEGORY_LABELS,
+        scoring_definitions=get_category_definitions(),
+        judge_scores=judge_scores,
+    )
+
+
+@public_bp.get("/team/logout")
+def team_logout():
+    logout_team()
+    flash("Team logged out successfully.", "info")
+    return redirect(url_for("public.team_login"))
+
+
 @public_bp.get("/logout")
 @login_required
 def logout():
+    if getattr(current_user, "role", None) == "judge" and getattr(current_user, "judge_profile", None):
+        try:
+            mark_judge_offline(current_user.judge_profile.id)
+        except SQLAlchemyError:
+            db.session.rollback()
+
     logout_user()
     flash("Logged out successfully.", "info")
     return redirect(url_for("public.home"))

@@ -37,6 +37,35 @@ class JudgeDirectLoginLink(db.Model):
     )
 
 
+class TeamDirectLoginLink(db.Model):
+    __tablename__ = "team_direct_login_links"
+
+    id = db.Column(db.BigInteger, primary_key=True)
+    team_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey("teams.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token = db.Column(db.String(128), nullable=False, unique=True, index=True)
+    expires_at = db.Column(db.DateTime(timezone=True), nullable=False, index=True)
+    revoked_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    revoke_reason = db.Column(db.String(120), nullable=True)
+    last_used_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    created_by_admin = db.Column(db.String(80), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now(), nullable=False)
+
+    team = db.relationship(
+        "Team",
+        backref=db.backref(
+            "direct_login_links",
+            lazy="dynamic",
+            cascade="all, delete-orphan",
+            passive_deletes=True,
+        ),
+    )
+
+
 class JudgeLoginRequest(db.Model):
     __tablename__ = "judge_login_requests"
 

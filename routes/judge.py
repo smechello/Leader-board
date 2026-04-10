@@ -7,8 +7,8 @@ from models.team import Team
 from models.user import Judge
 from services.judge_scoring_service import (
     CATEGORY_COUNT,
-    CATEGORY_DEFINITIONS,
     calculate_total_from_raw_scores,
+    get_category_definitions,
     get_adjacent_active_team_ids,
     get_judge_dashboard_rows,
     get_judge_team_score_snapshot,
@@ -16,6 +16,7 @@ from services.judge_scoring_service import (
     is_judge_team_locked,
     save_or_update_judge_scores,
 )
+from services.presence_service import mark_judge_online
 from utils.auth import role_required
 
 judge_bp = Blueprint("judge", __name__, url_prefix="/judge")
@@ -38,6 +39,7 @@ def dashboard():
         return redirect(url_for("public.logout"))
 
     try:
+        mark_judge_online(judge_profile.id)
         teams = get_judge_dashboard_rows(judge_profile.id)
     except SQLAlchemyError as exc:
         current_app.logger.error("Judge dashboard load failed: %s", exc)
@@ -65,6 +67,9 @@ def score_team(team_id):
         flash("Team not found or inactive.", "warning")
         return redirect(url_for("judge.dashboard"))
 
+    mark_judge_online(judge_profile.id)
+
+    category_definitions = get_category_definitions()
     snapshot = get_judge_team_score_snapshot(judge_profile.id, team.id)
     previous_team_id, next_team_id = get_adjacent_active_team_ids(team.id)
     score_values = snapshot["score_values"].copy()
@@ -75,13 +80,13 @@ def score_team(team_id):
             flash("Scores are locked for this team and cannot be edited.", "warning")
             return redirect(url_for("judge.score_team", team_id=team.id))
 
-        raw_scores = {item["key"]: request.form.get(item["key"], "").strip() for item in CATEGORY_DEFINITIONS}
+        raw_scores = {item["key"]: request.form.get(item["key"], "").strip() for item in category_definitions}
         remarks = request.form.get("remarks", "").strip()
         action = request.form.get("action", "save")
         lock_after_save = action == "save_lock"
 
         try:
-            for item in CATEGORY_DEFINITIONS:
+            for item in category_definitions:
                 score_text = raw_scores[item["key"]]
                 if not score_text:
                     raise ValueError(f"{item['label']} is required.")
@@ -130,7 +135,7 @@ def score_team(team_id):
         "judge/score_team.html",
         judge=current_user,
         team=team,
-        category_definitions=CATEGORY_DEFINITIONS,
+        category_definitions=category_definitions,
         score_values=score_values,
         remarks=remarks,
         existing_snapshot=snapshot,
@@ -138,3 +143,14 @@ def score_team(team_id):
         previous_team_id=previous_team_id,
         next_team_id=next_team_id,
     )
+
+
+@judge_bp.post("/presence/heartbeat")
+@role_required("judge")
+def heartbeat():
+    judge_profile = _get_current_judge_profile()
+    if not judge_profile:
+        return {"ok": False}, 404
+
+    mark_judge_online(judge_profile.id)
+    return {"ok": True}, 200

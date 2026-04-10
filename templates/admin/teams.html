@@ -25,6 +25,7 @@
                 <th>Project Title</th>
                 <th>Members</th>
                 <th>Status</th>
+                <th style="min-width: 340px;">Team Portal Access</th>
                 <th>Actions</th>
             </tr>
         </thead>
@@ -49,6 +50,47 @@
                     {% endif %}
                 </td>
                 <td>
+                    <div class="small mb-2">
+                        <strong>Login ID:</strong> {{ team.portal_login_id or '-' }}
+                    </div>
+
+                    <form method="post" action="{{ url_for('admin.update_team_access', team_id=team.id) }}" class="row g-1 mb-2">
+                        <div class="col-6">
+                            <input type="text" class="form-control form-control-sm" name="portal_login_id" placeholder="Team Login ID" value="{{ team.portal_login_id or '' }}" required>
+                        </div>
+                        <div class="col-6">
+                            <input type="password" class="form-control form-control-sm" name="portal_password" placeholder="Team Password" minlength="8" required>
+                        </div>
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary">Save Team Credentials</button>
+                        </div>
+                    </form>
+
+                    <form method="post" action="{{ url_for('admin.create_team_access_link', team_id=team.id) }}" class="d-flex gap-2 mb-2">
+                        <input type="number" class="form-control form-control-sm" name="lifespan_minutes" min="1" max="1440" value="30" required>
+                        <button type="submit" class="btn btn-sm btn-outline-primary">Generate Link</button>
+                    </form>
+
+                    {% set team_links = active_team_links_by_team.get(team.id, []) %}
+                    {% if team_links %}
+                    <div class="small">
+                        {% for link in team_links %}
+                        <div class="border rounded p-2 mb-1 bg-light">
+                            <div class="mb-1 text-break">
+                                <a href="{{ url_for('public.team_direct_login', token=link.token, _external=True) }}" target="_blank">Open Team Link</a>
+                            </div>
+                            <div class="text-muted mb-1">Expires: {{ link.expires_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</div>
+                            <form method="post" action="{{ url_for('admin.revoke_team_access_link', link_id=link.id) }}" onsubmit="return confirm('Revoke this team access link?');">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Revoke</button>
+                            </form>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <span class="small text-muted">No active team links</span>
+                    {% endif %}
+                </td>
+                <td>
                     <div class="d-flex gap-1 flex-wrap">
                         <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin.edit_team', team_id=team.id) }}">Edit</a>
                         <a class="btn btn-sm btn-outline-dark" href="{{ url_for('admin.manage_team_members', team_id=team.id) }}">Members</a>
@@ -65,7 +107,7 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="9" class="text-center text-muted">No teams found.</td>
+                <td colspan="10" class="text-center text-muted">No teams found.</td>
             </tr>
             {% endfor %}
         </tbody>

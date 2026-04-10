@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+
+{% block title %}Team Login | Ideathon Scoreboard{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-12 col-md-6 col-lg-5">
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <h2 class="h4 mb-3">Team Login</h2>
+                <p class="text-muted mb-4">Login to view your team members and judge-wise scores.</p>
+                <form method="post" novalidate>
+                    <div class="mb-3">
+                        <label for="team_login_id" class="form-label">Team ID</label>
+                        <input type="text" class="form-control" id="team_login_id" name="team_login_id" value="{{ prefill_login_id or '' }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="password" name="password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Login as Team</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

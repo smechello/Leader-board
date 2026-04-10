@@ -69,13 +69,14 @@
                     name="{{ category.key }}"
                     class="form-control score-input"
                     data-multiplier="{{ category.multiplier }}"
+                    data-max-score="{{ category.max_score }}"
                     min="0"
-                    max="10"
+                    max="{{ category.max_score }}"
                     step="0.01"
                     value="{{ score_values.get(category.key) if score_values.get(category.key) is not none else '' }}"
                     {% if existing_snapshot.is_locked %}disabled{% endif %}
                     required>
-                <div class="form-text">Enter a score between 0 and 10.</div>
+                <div class="form-text">Enter a score between 0 and {{ '%.2f'|format(category.max_score) }}.</div>
             </div>
             {% endfor %}
 
@@ -113,6 +114,7 @@
     id="team-nav-config"
     data-previous-url="{{ url_for('judge.score_team', team_id=previous_team_id) if previous_team_id else '' }}"
     data-next-url="{{ url_for('judge.score_team', team_id=next_team_id) if next_team_id else '' }}"
+    data-heartbeat-url="{{ url_for('judge.heartbeat') }}"
     hidden>
 </div>
 
@@ -123,10 +125,29 @@
     const navConfig = document.getElementById('team-nav-config');
     const previousTeamUrl = (navConfig && navConfig.dataset.previousUrl) || '';
     const nextTeamUrl = (navConfig && navConfig.dataset.nextUrl) || '';
+    const heartbeatUrl = (navConfig && navConfig.dataset.heartbeatUrl) || '';
+
+    function clampScoreInputValue(input) {
+        const maxScore = Number(input.dataset.maxScore || input.max || '0');
+        const rawValue = parseFloat(input.value);
+        if (Number.isNaN(rawValue)) {
+            return;
+        }
+
+        if (rawValue < 0) {
+            input.value = '0';
+            return;
+        }
+
+        if (Number.isFinite(maxScore) && rawValue > maxScore) {
+            input.value = String(maxScore);
+        }
+    }
 
     function updateTotal() {
         let total = 0;
         inputs.forEach((input) => {
+            clampScoreInputValue(input);
             const scoreValue = parseFloat(input.value);
             const multiplier = parseFloat(input.dataset.multiplier || '0');
             if (!Number.isNaN(scoreValue)) {
@@ -138,6 +159,7 @@
 
     inputs.forEach((input) => {
         input.addEventListener('input', updateTotal);
+        input.addEventListener('blur', updateTotal);
     });
 
     document.addEventListener('keydown', (event) => {
@@ -163,6 +185,26 @@
             window.location.href = nextTeamUrl;
         }
     });
+
+    async function sendHeartbeat() {
+        if (!heartbeatUrl) {
+            return;
+        }
+
+        try {
+            await fetch(heartbeatUrl, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+        } catch (error) {
+            // Ignore transient heartbeat failures.
+        }
+    }
+
+    sendHeartbeat();
+    setInterval(sendHeartbeat, 10000);
 
     updateTotal();
 })();

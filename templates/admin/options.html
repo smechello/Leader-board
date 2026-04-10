@@ -10,6 +10,54 @@
 
 <div class="card mb-4">
     <div class="card-body">
+        <h3 class="h5 mb-3">Scoring Rules</h3>
+        <p class="text-muted small mb-3">
+            Configure each category percentage and maximum raw score. The total of all percentages must be 100.
+        </p>
+        <form method="post" action="{{ url_for('admin.update_scoring_options') }}" class="row g-3" novalidate>
+            {% for item in scoring_definitions %}
+            <div class="col-12">
+                <div class="border rounded p-3">
+                    <div class="fw-semibold mb-2">{{ item.label }}</div>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label" for="weight_{{ item.key }}">Weight %</label>
+                            <input
+                                type="number"
+                                class="form-control"
+                                id="weight_{{ item.key }}"
+                                name="weight_{{ item.key }}"
+                                min="0.01"
+                                step="0.01"
+                                value="{{ '%.2f'|format(item.weight_percent) }}"
+                                required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="max_{{ item.key }}">Max Raw Score</label>
+                            <input
+                                type="number"
+                                class="form-control"
+                                id="max_{{ item.key }}"
+                                name="max_{{ item.key }}"
+                                min="0.01"
+                                step="0.01"
+                                value="{{ '%.2f'|format(item.max_score) }}"
+                                required>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Save Scoring Rules</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
         <h3 class="h5 mb-3">Delete Scores</h3>
         <p class="text-muted small mb-3">
             You can delete all scores, scores for a single team, scores from one judge, or scores from many judges.

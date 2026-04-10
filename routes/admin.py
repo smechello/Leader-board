@@ -19,11 +19,18 @@ from models.auth_access import (
     LOGIN_REQUEST_STATUS_REJECTED,
     JudgeDirectLoginLink,
     JudgeLoginRequest,
+    TeamDirectLoginLink,
 )
 from models.options import ProcessOption, ThemeOption
 from models.score import Score
 from models.team import Project, Team, TeamMember
 from models.user import Judge, User
+from services.presence_service import get_judge_online_map
+from services.scoring_config_service import (
+    get_category_definitions,
+    normalize_scoring_updates,
+    save_scoring_updates,
+)
 from utils.auth import role_required
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -48,6 +55,7 @@ def manage_options():
     )
     themes = ThemeOption.query.order_by(ThemeOption.name.asc()).all()
     processes = ProcessOption.query.order_by(ProcessOption.name.asc()).all()
+    scoring_definitions = get_category_definitions()
 
     return render_template(
         "admin/options.html",
@@ -55,6 +63,7 @@ def manage_options():
         judges=judges,
         themes=themes,
         processes=processes,
+        scoring_definitions=scoring_definitions,
     )
 
 
@@ -211,6 +220,23 @@ def delete_scores():
     return redirect(url_for("admin.manage_options"))
 
 
+@admin_bp.post("/options/scoring")
+@role_required("admin")
+def update_scoring_options():
+    try:
+        updates = normalize_scoring_updates(request.form)
+        save_scoring_updates(updates)
+        flash("Scoring limits and percentages updated successfully.", "success")
+    except ValueError as exc:
+        flash(str(exc), "warning")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("Scoring options update failed: %s", exc)
+        flash("Unable to update scoring options.", "danger")
+
+    return redirect(url_for("admin.manage_options"))
+
+
 def _validate_optional_url(label, raw_value):
     value = (raw_value or "").strip()
     if not value:
@@ -287,6 +313,23 @@ def _active_direct_links_by_judge(now_utc):
     return link_map
 
 
+def _active_direct_links_by_team(now_utc):
+    links = (
+        TeamDirectLoginLink.query.filter(
+            TeamDirectLoginLink.revoked_at.is_(None),
+            TeamDirectLoginLink.expires_at > now_utc,
+        )
+        .order_by(TeamDirectLoginLink.created_at.desc())
+        .all()
+    )
+
+    link_map = {}
+    for link in links:
+        link_map.setdefault(link.team_id, []).append(link)
+
+    return link_map
+
+
 def _get_theme_and_process_names():
     theme_names = [item.name for item in ThemeOption.query.order_by(ThemeOption.name.asc()).all()]
     process_names = [item.name for item in ProcessOption.query.order_by(ProcessOption.name.asc()).all()]
@@ -323,6 +366,7 @@ def _parse_team_form_payload(form_data):
 @admin_bp.get("/teams")
 @role_required("admin")
 def list_teams():
+    now_utc = _utcnow()
     try:
         teams = (
             Team.query.options(
@@ -332,12 +376,19 @@ def list_teams():
             .order_by(Team.sort_order.asc(), Team.id.asc())
             .all()
         )
+        active_team_links_by_team = _active_direct_links_by_team(now_utc)
     except SQLAlchemyError as exc:
         current_app.logger.error("Team list query failed: %s", exc)
         flash("Unable to load teams. Ensure database schema is applied.", "warning")
         teams = []
+        active_team_links_by_team = {}
 
-    return render_template("admin/teams.html", teams=teams)
+    return render_template(
+        "admin/teams.html",
+        teams=teams,
+        active_team_links_by_team=active_team_links_by_team,
+        now_utc=now_utc,
+    )
 
 
 @admin_bp.route("/teams/new", methods=["GET", "POST"])
@@ -439,6 +490,114 @@ def reorder_teams():
         db.session.rollback()
         current_app.logger.error("Team reorder failed: %s", exc)
         return jsonify({"error": "Unable to save team order."}), 500
+
+
+@admin_bp.post("/teams/<int:team_id>/access")
+@role_required("admin")
+def update_team_access(team_id):
+    login_id = (request.form.get("portal_login_id") or "").strip()
+    password = request.form.get("portal_password", "")
+
+    if not login_id or len(login_id) < 3:
+        flash("Team login ID must be at least 3 characters.", "warning")
+        return redirect(url_for("admin.list_teams"))
+
+    if len(password) < 8:
+        flash("Team portal password must be at least 8 characters.", "warning")
+        return redirect(url_for("admin.list_teams"))
+
+    try:
+        team = Team.query.filter_by(id=team_id).first()
+        if not team:
+            flash("Team not found.", "warning")
+            return redirect(url_for("admin.list_teams"))
+
+        duplicate_team = Team.query.filter(Team.portal_login_id == login_id, Team.id != team_id).first()
+        if duplicate_team:
+            flash("This Team Login ID is already in use.", "warning")
+            return redirect(url_for("admin.list_teams"))
+
+        team.portal_login_id = login_id
+        team.portal_password_hash = generate_password_hash(password)
+        db.session.commit()
+        flash(f"Team portal credentials updated for {team.team_name}.", "success")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("Update team access failed: %s", exc)
+        flash("Unable to update team access credentials.", "danger")
+
+    return redirect(url_for("admin.list_teams"))
+
+
+@admin_bp.post("/teams/<int:team_id>/access-link")
+@role_required("admin")
+def create_team_access_link(team_id):
+    lifespan_text = (request.form.get("lifespan_minutes") or "30").strip()
+
+    try:
+        lifespan_minutes = int(lifespan_text)
+    except ValueError:
+        flash("Team link lifespan must be a number of minutes.", "warning")
+        return redirect(url_for("admin.list_teams"))
+
+    if lifespan_minutes < 1 or lifespan_minutes > 1440:
+        flash("Team link lifespan must be between 1 and 1440 minutes.", "warning")
+        return redirect(url_for("admin.list_teams"))
+
+    try:
+        team = Team.query.filter_by(id=team_id).first()
+        if not team or not team.is_active:
+            flash("Team not found or inactive.", "warning")
+            return redirect(url_for("admin.list_teams"))
+
+        if not team.portal_login_id or not team.portal_password_hash:
+            flash("Set Team Login ID and Password before generating a link.", "warning")
+            return redirect(url_for("admin.list_teams"))
+
+        token = secrets.token_urlsafe(32)
+        expires_at = _utcnow() + timedelta(minutes=lifespan_minutes)
+        link = TeamDirectLoginLink(
+            team_id=team.id,
+            token=token,
+            expires_at=expires_at,
+            created_by_admin=_admin_actor_name(),
+        )
+        db.session.add(link)
+        db.session.commit()
+
+        link_url = url_for("public.team_direct_login", token=token, _external=True)
+        flash(f"Team access link created for {team.team_name}: {link_url}", "info")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("Create team access link failed: %s", exc)
+        flash("Unable to create team access link.", "danger")
+
+    return redirect(url_for("admin.list_teams"))
+
+
+@admin_bp.post("/teams/access-link/<int:link_id>/revoke")
+@role_required("admin")
+def revoke_team_access_link(link_id):
+    try:
+        link = TeamDirectLoginLink.query.filter_by(id=link_id).first()
+        if not link:
+            flash("Team access link not found.", "warning")
+            return redirect(url_for("admin.list_teams"))
+
+        if link.revoked_at is not None:
+            flash("Team access link is already revoked.", "info")
+            return redirect(url_for("admin.list_teams"))
+
+        link.revoked_at = _utcnow()
+        link.revoke_reason = "admin_revoked"
+        db.session.commit()
+        flash("Team access link revoked.", "success")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("Revoke team access link failed: %s", exc)
+        flash("Unable to revoke team access link.", "danger")
+
+    return redirect(url_for("admin.list_teams"))
 
 
 @admin_bp.route("/teams/<int:team_id>/edit", methods=["GET", "POST"])
@@ -707,18 +866,22 @@ def manage_judges():
             .order_by(User.id.asc())
             .all()
         )
+        judge_ids = [judge.id for _, judge in judges]
+        judge_online_map = get_judge_online_map(judge_ids)
         active_links_by_judge = _active_direct_links_by_judge(now_utc)
         pending_login_requests = _get_pending_login_requests(limit=50)
     except SQLAlchemyError as exc:
         current_app.logger.error("Judge list query failed: %s", exc)
         flash("Unable to load judges. Ensure database schema is applied.", "warning")
         judges = []
+        judge_online_map = {}
         active_links_by_judge = {}
         pending_login_requests = []
 
     return render_template(
         "admin/judges.html",
         judges=judges,
+        judge_online_map=judge_online_map,
         active_links_by_judge=active_links_by_judge,
         pending_login_requests=pending_login_requests,
         now_utc=now_utc,
@@ -913,6 +1076,19 @@ def login_request_notifications():
     except SQLAlchemyError as exc:
         current_app.logger.error("Login request notifications failed: %s", exc)
         return jsonify({"count": 0, "items": []}), 500
+
+
+@admin_bp.get("/notifications/judge-presence")
+@role_required("admin")
+def judge_presence_notifications():
+    try:
+        judge_ids = [item[0] for item in db.session.query(Judge.id).all()]
+        online_map = get_judge_online_map(judge_ids)
+        payload = {str(judge_id): bool(status) for judge_id, status in online_map.items()}
+        return jsonify({"online": payload})
+    except SQLAlchemyError as exc:
+        current_app.logger.error("Judge presence notifications failed: %s", exc)
+        return jsonify({"online": {}}), 500
 
 
 @admin_bp.post("/judges/<int:user_id>/delete")

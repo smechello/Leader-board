@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Computed, Enum, UniqueConstraint
+from sqlalchemy import CheckConstraint, Enum, UniqueConstraint, event
 
 from . import db
 
@@ -20,7 +20,7 @@ class Score(db.Model):
             "category",
             name="uq_scores_judge_team_category",
         ),
-        CheckConstraint("raw_score >= 0 AND raw_score <= 10", name="ck_scores_raw_score_range"),
+        CheckConstraint("raw_score >= 0", name="ck_scores_raw_score_non_negative"),
     )
 
     id = db.Column(db.BigInteger, primary_key=True)
@@ -36,18 +36,7 @@ class Score(db.Model):
     )
     category = db.Column(Enum(*SCORE_CATEGORIES, name="score_category"), nullable=False)
     raw_score = db.Column(db.Numeric(4, 2), nullable=False)
-    weighted_score = db.Column(
-        db.Numeric(6, 2),
-        Computed(
-            "ROUND(CASE "
-            "WHEN category = 'innovation_originality' THEN raw_score * 3.00 "
-            "WHEN category = 'technical_implementation' THEN raw_score * 3.00 "
-            "WHEN category = 'business_value_impact' THEN raw_score * 2.50 "
-            "WHEN category = 'presentation_clarity' THEN raw_score * 1.50 "
-            "END, 2)",
-            persisted=True,
-        ),
-    )
+    weighted_score = db.Column(db.Numeric(6, 2), nullable=False, default=0)
     remarks = db.Column(db.Text, nullable=True)
     is_locked = db.Column(db.Boolean, nullable=False, default=False)
     submitted_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now(), nullable=False)
@@ -60,3 +49,19 @@ class Score(db.Model):
 
     judge = db.relationship("Judge", back_populates="scores")
     team = db.relationship("Team", back_populates="scores")
+
+
+def _sync_weighted_score(mapper, connection, target):
+    """Keep weighted_score aligned with raw_score and current category rules."""
+    from services.scoring_config_service import calculate_weighted_score
+
+    try:
+        raw_score = float(target.raw_score or 0)
+    except (TypeError, ValueError):
+        raw_score = 0.0
+
+    target.weighted_score = calculate_weighted_score(target.category, raw_score)
+
+
+event.listen(Score, "before_insert", _sync_weighted_score)
+event.listen(Score, "before_update", _sync_weighted_score)

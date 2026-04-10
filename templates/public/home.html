@@ -6,6 +6,9 @@
 <div class="p-4 p-md-5 mb-4 rounded-3 border bg-light">
     <h1 class="display-6">Ideathon Live Scoring Platform</h1>
     <p class="lead mb-4">Admin manages teams, judges submit scores, and employees can view rankings publicly.</p>
-    <a class="btn btn-primary" href="{{ url_for('public.scoreboard') }}">View Live Scoreboard</a>
+    <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-primary" href="{{ url_for('public.scoreboard') }}">View Live Scoreboard</a>
+        <a class="btn btn-outline-primary" href="{{ url_for('public.team_login') }}">Team Login</a>
+    </div>
 </div>
 {% endblock %}

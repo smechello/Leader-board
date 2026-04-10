@@ -10,6 +10,7 @@ from models import db
 from routes.admin import admin_bp
 from routes.judge import judge_bp
 from routes.public import public_bp
+from services.scoring_config_service import ensure_default_scoring_settings
 from utils.auth import load_session_user
 
 login_manager = LoginManager()
@@ -69,6 +70,24 @@ def ensure_database_compatibility(app):
 			connection.execute(
 				text(
 					"""
+					ALTER TABLE teams
+					ADD COLUMN IF NOT EXISTS portal_login_id VARCHAR(80)
+					"""
+				)
+			)
+
+			connection.execute(
+				text(
+					"""
+					ALTER TABLE teams
+					ADD COLUMN IF NOT EXISTS portal_password_hash TEXT
+					"""
+				)
+			)
+
+			connection.execute(
+				text(
+					"""
 					UPDATE teams
 					SET sort_order = id::INTEGER
 					WHERE sort_order IS NULL OR sort_order = 0
@@ -78,6 +97,10 @@ def ensure_database_compatibility(app):
 
 			connection.execute(
 				text("CREATE INDEX IF NOT EXISTS idx_teams_sort_order ON teams (sort_order)")
+			)
+
+			connection.execute(
+				text("CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_portal_login_id ON teams (portal_login_id)")
 			)
 
 			connection.execute(
@@ -120,6 +143,126 @@ def ensure_database_compatibility(app):
 					)
 					"""
 				)
+			)
+
+			connection.execute(
+				text(
+					"""
+					CREATE TABLE IF NOT EXISTS team_direct_login_links (
+						id BIGSERIAL PRIMARY KEY,
+						team_id BIGINT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+						token VARCHAR(128) NOT NULL UNIQUE,
+						expires_at TIMESTAMPTZ NOT NULL,
+						revoked_at TIMESTAMPTZ,
+						revoke_reason VARCHAR(120),
+						last_used_at TIMESTAMPTZ,
+						created_by_admin VARCHAR(80),
+						created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+					)
+					"""
+				)
+			)
+
+			connection.execute(
+				text(
+					"""
+					CREATE TABLE IF NOT EXISTS judge_presence (
+						id BIGSERIAL PRIMARY KEY,
+						judge_id BIGINT NOT NULL UNIQUE REFERENCES judges(id) ON DELETE CASCADE,
+						is_online BOOLEAN NOT NULL DEFAULT FALSE,
+						last_seen_at TIMESTAMPTZ,
+						updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+					)
+					"""
+				)
+			)
+
+			connection.execute(
+				text(
+					"""
+					CREATE TABLE IF NOT EXISTS scoring_category_settings (
+						id BIGSERIAL PRIMARY KEY,
+						category VARCHAR(64) NOT NULL UNIQUE,
+						weight_percent NUMERIC(6,2) NOT NULL,
+						max_score NUMERIC(6,2) NOT NULL,
+						created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+						updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+					)
+					"""
+				)
+			)
+
+			weighted_score_generation = connection.execute(
+				text(
+					"""
+					SELECT is_generated
+					FROM information_schema.columns
+					WHERE table_schema = current_schema()
+					  AND table_name = 'scores'
+					  AND column_name = 'weighted_score'
+					"""
+				)
+			).scalar()
+
+			if str(weighted_score_generation or "").upper() == "ALWAYS":
+				connection.execute(text("ALTER TABLE scores ALTER COLUMN weighted_score DROP EXPRESSION"))
+
+			connection.execute(
+				text(
+					"""
+					ALTER TABLE scores
+					ALTER COLUMN raw_score TYPE NUMERIC(6,2)
+					"""
+				)
+			)
+
+			connection.execute(text("ALTER TABLE scores DROP CONSTRAINT IF EXISTS ck_scores_raw_score_range"))
+			connection.execute(text("ALTER TABLE scores DROP CONSTRAINT IF EXISTS ck_scores_raw_score_non_negative"))
+			connection.execute(text("ALTER TABLE scores ADD CONSTRAINT ck_scores_raw_score_non_negative CHECK (raw_score >= 0)"))
+
+			connection.execute(
+				text(
+					"""
+					ALTER TABLE scores
+					ALTER COLUMN weighted_score TYPE NUMERIC(6,2)
+					"""
+				)
+			)
+			connection.execute(text("ALTER TABLE scores ALTER COLUMN weighted_score SET DEFAULT 0"))
+			connection.execute(text("ALTER TABLE scores ALTER COLUMN weighted_score SET NOT NULL"))
+
+			connection.execute(
+				text(
+					"""
+					UPDATE scores
+					SET weighted_score = ROUND(
+						CASE
+							WHEN category = 'innovation_originality'::score_category THEN raw_score * 3.00
+							WHEN category = 'technical_implementation'::score_category THEN raw_score * 3.00
+							WHEN category = 'business_value_impact'::score_category THEN raw_score * 2.50
+							WHEN category = 'presentation_clarity'::score_category THEN raw_score * 1.50
+							ELSE 0
+						END,
+						2
+					)
+					"""
+				)
+			)
+
+			connection.execute(
+				text("CREATE INDEX IF NOT EXISTS idx_team_direct_login_links_team_id ON team_direct_login_links (team_id)")
+			)
+
+			connection.execute(
+				text("CREATE INDEX IF NOT EXISTS idx_team_direct_login_links_expires_at ON team_direct_login_links (expires_at)")
+			)
+
+			connection.execute(
+				text("CREATE INDEX IF NOT EXISTS idx_judge_presence_judge_id ON judge_presence (judge_id)")
+			)
+
+			connection.execute(
+				text("CREATE INDEX IF NOT EXISTS idx_scoring_category_settings_category ON scoring_category_settings (category)")
 			)
 
 			connection.execute(
@@ -217,6 +360,7 @@ def create_app():
 	with app.app_context():
 		verify_database_connection(app)
 		ensure_database_compatibility(app)
+		ensure_default_scoring_settings()
 
 	return app
 

@@ -4,37 +4,20 @@ from models import db
 from models.audit import AuditLog
 from models.score import SCORE_CATEGORIES, Score
 from models.team import Team
-
-CATEGORY_DEFINITIONS = (
-    {
-        "key": "innovation_originality",
-        "label": "Innovation and Originality",
-        "weight_percent": 30,
-        "multiplier": 3.0,
-    },
-    {
-        "key": "technical_implementation",
-        "label": "Technical Implementation",
-        "weight_percent": 30,
-        "multiplier": 3.0,
-    },
-    {
-        "key": "business_value_impact",
-        "label": "Business Value and Impact",
-        "weight_percent": 25,
-        "multiplier": 2.5,
-    },
-    {
-        "key": "presentation_clarity",
-        "label": "Presentation and Clarity",
-        "weight_percent": 15,
-        "multiplier": 1.5,
-    },
+from services.scoring_config_service import (
+    CATEGORY_LABELS,
+    calculate_weighted_score,
+    get_category_definitions as get_dynamic_category_definitions,
+    get_scoring_rules_map,
 )
 
-CATEGORY_COUNT = len(CATEGORY_DEFINITIONS)
-CATEGORY_LABELS = {item["key"]: item["label"] for item in CATEGORY_DEFINITIONS}
-CATEGORY_MULTIPLIERS = {item["key"]: item["multiplier"] for item in CATEGORY_DEFINITIONS}
+
+def get_category_definitions():
+    return get_dynamic_category_definitions()
+
+
+CATEGORY_DEFINITIONS = tuple(get_category_definitions())
+CATEGORY_COUNT = len(SCORE_CATEGORIES)
 
 
 def _add_audit_log(actor_user_id, action, entity_type, entity_id, old_data, new_data):
@@ -51,10 +34,11 @@ def _add_audit_log(actor_user_id, action, entity_type, entity_id, old_data, new_
 
 
 def calculate_total_from_raw_scores(raw_scores):
+    rules_map = get_scoring_rules_map()
     total = 0.0
     for category_key in SCORE_CATEGORIES:
         value = float(raw_scores.get(category_key, 0) or 0)
-        total += value * CATEGORY_MULTIPLIERS[category_key]
+        total += calculate_weighted_score(category_key, value, rules_map)
     return round(total, 2)
 
 
@@ -159,6 +143,7 @@ def save_or_update_judge_scores(
     if existing_rows and any(bool(row.is_locked) for row in existing_rows):
         raise ValueError("Scores are locked for this team and cannot be edited.")
 
+    rules_map = get_scoring_rules_map()
     existing_by_category = {row.category: row for row in existing_rows}
 
     normalized_remarks = (remarks or "").strip() or None
@@ -172,24 +157,31 @@ def save_or_update_judge_scores(
         except (TypeError, ValueError):
             raise ValueError(f"{CATEGORY_LABELS[category_key]} must be a valid number.")
 
-        score_value = round(score_value, 2)
+        max_score = float(rules_map[category_key]["max_score"])
+        if score_value < 0:
+            score_value = 0.0
+        if score_value > max_score:
+            score_value = max_score
 
-        if score_value < 0 or score_value > 10:
-            raise ValueError(f"{CATEGORY_LABELS[category_key]} must be between 0 and 10.")
+        score_value = round(score_value, 2)
+        weighted_value = calculate_weighted_score(category_key, score_value, rules_map)
 
         row = existing_by_category.get(category_key)
         if row:
             old_data = {
                 "raw_score": float(row.raw_score),
+                "weighted_score": float(row.weighted_score),
                 "remarks": row.remarks,
                 "is_locked": bool(row.is_locked),
             }
 
             row.raw_score = score_value
+            row.weighted_score = weighted_value
             row.remarks = normalized_remarks
 
             new_data = {
                 "raw_score": score_value,
+                "weighted_score": weighted_value,
                 "remarks": normalized_remarks,
                 "is_locked": bool(row.is_locked),
             }
@@ -209,6 +201,7 @@ def save_or_update_judge_scores(
                 team_id=team_id,
                 category=category_key,
                 raw_score=score_value,
+                weighted_score=weighted_value,
                 remarks=normalized_remarks,
                 is_locked=False,
             )
@@ -223,6 +216,7 @@ def save_or_update_judge_scores(
                 old_data=None,
                 new_data={
                     "raw_score": score_value,
+                    "weighted_score": weighted_value,
                     "remarks": normalized_remarks,
                     "is_locked": False,
                     "category": category_key,
@@ -261,8 +255,8 @@ def save_or_update_judge_scores(
     if len(existing_rows_after) != CATEGORY_COUNT:
         raise ValueError("All four scoring categories are required.")
 
-    if any((float(row.raw_score) < 0 or float(row.raw_score) > 10) for row in existing_rows_after):
-        raise ValueError("Scores must remain within the 0-10 range.")
+    if any(float(row.raw_score) < 0 for row in existing_rows_after):
+        raise ValueError("Scores must remain non-negative.")
 
     category_set = {row.category for row in existing_rows_after}
     if len(category_set) != CATEGORY_COUNT:

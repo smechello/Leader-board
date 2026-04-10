@@ -58,3 +58,10 @@ class Judge(db.Model):
 
     user = db.relationship("User", back_populates="judge_profile")
     scores = db.relationship("Score", back_populates="judge", cascade="all, delete-orphan")
+    presence = db.relationship(
+        "JudgePresence",
+        uselist=False,
+        back_populates="judge",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

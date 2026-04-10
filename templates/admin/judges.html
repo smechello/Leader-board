@@ -35,6 +35,7 @@
                 <thead class="table-dark">
                     <tr>
                         <th>ID</th>
+                        <th>Status</th>
                         <th>Judge Name</th>
                         <th>Login Key</th>
                         <th style="min-width: 240px;">Direct Login Link</th>
@@ -46,6 +47,14 @@
                     {% for user, judge in judges %}
                     <tr>
                         <td>{{ user.id }}</td>
+                        <td>
+                            {% set is_online = judge_online_map.get(judge.id, False) %}
+                            <span
+                                class="judge-status-dot {% if is_online %}judge-status-online{% else %}judge-status-offline{% endif %}"
+                                data-judge-id="{{ judge.id }}"
+                                title="{% if is_online %}Online{% else %}Offline{% endif %}">
+                            </span>
+                        </td>
                         <td>{{ judge.display_name }}</td>
                         <td>{{ user.username }}</td>
                         <td>
@@ -87,7 +96,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="6" class="text-center text-muted">No judges found.</td>
+                        <td colspan="7" class="text-center text-muted">No judges found.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -148,6 +157,7 @@
     id="pending-login-request-config"
     data-approve-template="{{ url_for('admin.approve_login_request', request_id=999999999)|replace('999999999', '__REQUEST_ID__') }}"
     data-reject-template="{{ url_for('admin.reject_login_request', request_id=999999999)|replace('999999999', '__REQUEST_ID__') }}"
+    data-presence-endpoint="{{ url_for('admin.judge_presence_notifications') }}"
     hidden>
 </div>
 
@@ -161,6 +171,7 @@
 
     const approveTemplate = configElement.dataset.approveTemplate;
     const rejectTemplate = configElement.dataset.rejectTemplate;
+    const presenceEndpoint = configElement.dataset.presenceEndpoint;
 
     function formatUtc(isoText) {
         if (!isoText) {
@@ -252,6 +263,38 @@
         const items = event && event.detail ? event.detail.items : [];
         renderPendingRows(items);
     });
+
+    function updateJudgePresence(onlineMap) {
+        const statusDots = document.querySelectorAll('[data-judge-id].judge-status-dot');
+        statusDots.forEach((dot) => {
+            const judgeId = String(dot.dataset.judgeId || '');
+            const isOnline = Boolean(onlineMap && onlineMap[judgeId]);
+            dot.classList.remove('judge-status-online', 'judge-status-offline');
+            dot.classList.add(isOnline ? 'judge-status-online' : 'judge-status-offline');
+            dot.title = isOnline ? 'Online' : 'Offline';
+        });
+    }
+
+    async function refreshJudgePresence() {
+        if (!presenceEndpoint) {
+            return;
+        }
+
+        try {
+            const response = await fetch(presenceEndpoint, { cache: 'no-store' });
+            if (!response.ok) {
+                return;
+            }
+
+            const payload = await response.json();
+            updateJudgePresence(payload.online || {});
+        } catch (error) {
+            // Ignore transient polling failures.
+        }
+    }
+
+    refreshJudgePresence();
+    setInterval(refreshJudgePresence, 5000);
 })();
 </script>
 {% endblock %}
