@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import os
+import re
 import time
 import uuid
 
@@ -466,6 +467,16 @@ def test_admin_updates_presentation_time_limit_option(app, admin_client):
         db.session.commit()
 
 
+def test_admin_dashboard_active_judges_stat_is_non_negative(admin_client):
+    response = admin_client.get("/admin/dashboard", follow_redirects=False)
+    assert response.status_code == 200
+
+    html = response.get_data(as_text=True)
+    match = re.search(r"Active Judges</p>\s*<h2[^>]*>(-?\d+)</h2>", html)
+    assert match is not None
+    assert int(match.group(1)) >= 0
+
+
 def test_judge_score_edit_and_lock_flow(app, client):
     judge_username = _unique_name("judge_step9")
     judge_password = "judgepass123"
@@ -569,6 +580,89 @@ def test_judge_score_edit_and_lock_flow(app, client):
 
             audit_count = AuditLog.query.filter_by(actor_user_id=judge_user_id).count()
             assert audit_count > 0
+    finally:
+        with app.app_context():
+            AuditLog.query.filter_by(actor_user_id=judge_user_id).delete(synchronize_session=False)
+            user = User.query.filter_by(id=judge_user_id).first()
+            team = Team.query.filter_by(id=team_id).first()
+            if team:
+                db.session.delete(team)
+            if user:
+                db.session.delete(user)
+            db.session.commit()
+
+
+def test_judge_can_clear_scores_for_current_team(app, client):
+    judge_username = _unique_name("judge_clear")
+    judge_password = "judgepass123"
+    team_name = _unique_name("team_clear")
+
+    with app.app_context():
+        judge_user = User(
+            username=judge_username,
+            email=f"{judge_username}@example.com",
+            password_hash=generate_password_hash(judge_password),
+            role="judge",
+            is_active=True,
+        )
+        Judge(user=judge_user, display_name="Judge Clear", is_active=True)
+
+        team = Team(team_name=team_name, theme="ClearTest", is_active=True)
+        team.project = Project(
+            project_title="Clear Project",
+            problem_statement="Clear Problem",
+            project_summary="Clear Summary",
+        )
+
+        db.session.add(judge_user)
+        db.session.add(team)
+        db.session.commit()
+
+        judge_user_id = judge_user.id
+        judge_id = judge_user.judge_profile.id
+        team_id = team.id
+
+    try:
+        login_response = client.post(
+            "/login",
+            data={"username": judge_username, "password": judge_password},
+            follow_redirects=False,
+        )
+        assert login_response.status_code == 302
+
+        save_response = client.post(
+            f"/judge/teams/{team_id}/score",
+            data={
+                "innovation_originality": "8",
+                "technical_implementation": "7",
+                "business_value_impact": "9",
+                "presentation_clarity": "6",
+                "remarks": "Initial",
+                "action": "save",
+            },
+            follow_redirects=False,
+        )
+        assert save_response.status_code == 302
+
+        clear_response = client.post(
+            f"/judge/teams/{team_id}/score",
+            data={
+                "action": "clear",
+            },
+            follow_redirects=False,
+        )
+        assert clear_response.status_code == 302
+
+        with app.app_context():
+            rows = Score.query.filter_by(judge_id=judge_id, team_id=team_id).all()
+            assert len(rows) == 0
+
+            audit = (
+                AuditLog.query
+                .filter_by(actor_user_id=judge_user_id, action="score_cleared", entity_id=team_id)
+                .first()
+            )
+            assert audit is not None
     finally:
         with app.app_context():
             AuditLog.query.filter_by(actor_user_id=judge_user_id).delete(synchronize_session=False)

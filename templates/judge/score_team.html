@@ -103,6 +103,15 @@
         {% if existing_snapshot.is_locked %}
         <a href="{{ url_for('judge.dashboard') }}" class="btn btn-outline-secondary">Back to Dashboard</a>
         {% else %}
+        <button
+            type="submit"
+            name="action"
+            value="clear"
+            class="btn btn-outline-danger me-auto"
+            formnovalidate
+            onclick="return confirm('Clear all saved scores for this team?');">
+            Clear Scores
+        </button>
         <button type="submit" name="action" value="save" class="btn btn-primary">Save Scores</button>
         <button type="submit" name="action" value="save_next" class="btn btn-outline-primary">Save and Next Team</button>
         <button type="submit" name="action" value="save_lock" class="btn btn-dark">Save and Lock</button>

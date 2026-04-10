@@ -3,6 +3,9 @@ from flask_login import current_user
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
 
+from models import db
+from models.audit import AuditLog
+from models.score import Score
 from models.team import Team
 from models.user import Judge
 from services.judge_scoring_service import (
@@ -77,13 +80,56 @@ def score_team(team_id):
     remarks = snapshot["remarks"]
 
     if request.method == "POST":
+        action = request.form.get("action", "save")
+
+        if action == "clear":
+            if is_judge_team_locked(judge_profile.id, team.id):
+                flash("Scores are locked for this team and cannot be cleared.", "warning")
+                return redirect(url_for("judge.score_team", team_id=team.id))
+
+            try:
+                deleted_rows = (
+                    Score.query.filter_by(judge_id=judge_profile.id, team_id=team.id)
+                    .delete(synchronize_session=False)
+                )
+
+                if deleted_rows > 0:
+                    db.session.add(
+                        AuditLog(
+                            actor_user_id=current_user.id,
+                            action="score_cleared",
+                            entity_type="judge_team_scores",
+                            entity_id=team.id,
+                            old_data={
+                                "judge_id": judge_profile.id,
+                                "team_id": team.id,
+                                "cleared_rows": deleted_rows,
+                            },
+                            new_data={
+                                "judge_id": judge_profile.id,
+                                "team_id": team.id,
+                                "cleared_rows": 0,
+                            },
+                        )
+                    )
+                    flash("All saved scores were cleared for this team.", "success")
+                else:
+                    flash("No saved scores found for this team.", "info")
+
+                db.session.commit()
+            except SQLAlchemyError as exc:
+                db.session.rollback()
+                current_app.logger.error("Clear judge scores failed: %s", exc)
+                flash("Unable to clear scores right now. Try again.", "danger")
+
+            return redirect(url_for("judge.score_team", team_id=team.id))
+
         if is_judge_team_locked(judge_profile.id, team.id):
             flash("Scores are locked for this team and cannot be edited.", "warning")
             return redirect(url_for("judge.score_team", team_id=team.id))
 
         raw_scores = {item["key"]: request.form.get(item["key"], "").strip() for item in category_definitions}
         remarks = request.form.get("remarks", "").strip()
-        action = request.form.get("action", "save")
         lock_after_save = action == "save_lock"
 
         try:

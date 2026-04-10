@@ -170,7 +170,12 @@ def _timer_state_snapshot(now_utc=None):
 def dashboard():
     stats = {
         "teams": db.session.query(Team).count(),
-        "judges": db.session.query(Judge).count() - 1, # Exclude admin if admin is counted as judge, actually Admin is User
+        "judges": (
+            db.session.query(Judge)
+            .join(User, User.id == Judge.user_id)
+            .filter(User.role == "judge", User.is_active.is_(True), Judge.is_active.is_(True))
+            .count()
+        ),
         "pending_requests": db.session.query(JudgeLoginRequest).filter_by(status=LOGIN_REQUEST_STATUS_PENDING).count(),
         "total_scores": db.session.query(Score).count()
     }
