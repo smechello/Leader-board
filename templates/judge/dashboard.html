@@ -3,153 +3,510 @@
 {% block title %}Judge Dashboard{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-	<h2 class="mb-0">Judge Dashboard</h2>
-	<span class="text-muted">Welcome, {{ judge_display_name or judge.username }}</span>
-</div>
+{% set stats = namespace(completed=0, locked=0) %}
+{% for team in teams %}
+    {% if team.is_completed %}
+        {% set stats.completed = stats.completed + 1 %}
+    {% endif %}
+    {% if team.is_locked %}
+        {% set stats.locked = stats.locked + 1 %}
+    {% endif %}
+{% endfor %}
 
-<p class="text-muted">Select a team to score or edit your previous scores.</p>
+<section class="judge-dash-shell">
+    <div class="judge-dash-hero mb-4">
+        <div>
+            <p class="judge-kicker mb-2">Evaluation Console</p>
+            <h2 class="mb-2">Judge Dashboard</h2>
+            <p class="mb-0 text-secondary">Welcome, {{ judge_display_name or judge.username }}. Score teams with speed and clarity.</p>
+        </div>
+        <div class="judge-metric-grid">
+            <div class="judge-metric-card">
+                <span>Total Teams</span>
+                <strong>{{ teams|length }}</strong>
+            </div>
+            <div class="judge-metric-card">
+                <span>Completed</span>
+                <strong>{{ stats.completed }}</strong>
+            </div>
+            <div class="judge-metric-card">
+                <span>Locked</span>
+                <strong>{{ stats.locked }}</strong>
+            </div>
+        </div>
+    </div>
 
-<div class="card border-0 shadow-sm mb-4">
-	<div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
-		<div>
-			<div class="small text-muted text-uppercase">Current Presentation Focus</div>
-			<div class="fw-semibold" id="judge-presentation-state-text">Loading...</div>
-		</div>
-		<div class="d-flex gap-2 flex-wrap">
-			<a id="judge-current-team-link" class="btn btn-sm btn-primary disabled" href="#" aria-disabled="true">Open Current Team</a>
-			<a id="judge-next-team-link" class="btn btn-sm btn-outline-primary disabled" href="#" aria-disabled="true">Open Next Team</a>
-		</div>
-	</div>
-</div>
+    <div class="judge-focus-card mb-4">
+        <div class="judge-focus-grid">
+            <div class="judge-focus-chip">
+                <span class="chip-label">Current Team</span>
+                <strong id="judge-presentation-current">Loading...</strong>
+            </div>
+            <div class="judge-focus-chip">
+                <span class="chip-label">Next Team</span>
+                <strong id="judge-presentation-next">Loading...</strong>
+            </div>
+            <div class="judge-focus-chip">
+                <span class="chip-label">Timer State</span>
+                <strong id="judge-presentation-status" class="status-chip">Loading...</strong>
+            </div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a id="judge-current-team-link" class="btn btn-sm judge-btn-primary disabled" href="#" aria-disabled="true">Open Current Team</a>
+            <a id="judge-next-team-link" class="btn btn-sm judge-btn-outline disabled" href="#" aria-disabled="true">Open Next Team</a>
+        </div>
+    </div>
 
-<div class="table-responsive">
-	<table class="table table-bordered table-striped align-middle">
-		<thead class="table-dark">
-			<tr>
-				<th>ID</th>
-				<th>Team</th>
-				<th>Theme</th>
-				<th>Project</th>
-				<th>Summary</th>
-				<th>Progress</th>
-				<th>Lock</th>
-				<th>Your Total</th>
-				<th>Action</th>
-			</tr>
-		</thead>
-		<tbody>
-			{% for team in teams %}
-			<tr>
-				<td>{{ team.id }}</td>
-				<td>{{ team.team_name }}</td>
-				<td>{{ team.theme }}</td>
-				<td>{{ team.project_title }}</td>
-				<td>{{ team.project_summary }}</td>
-				<td>
-					{{ team.categories_scored }}/{{ category_count }}
-					{% if team.is_completed %}
-						<span class="badge text-bg-success ms-1">Completed</span>
-					{% else %}
-						<span class="badge text-bg-warning ms-1">Pending</span>
-					{% endif %}
-				</td>
-				<td>
-					{% if team.is_locked %}
-						<span class="badge text-bg-dark">Locked</span>
-					{% else %}
-						<span class="badge text-bg-light">Editable</span>
-					{% endif %}
-				</td>
-				<td>{{ '%.2f'|format(team.judge_total) }}</td>
-				<td>
-					<a class="btn btn-sm btn-primary" href="{{ url_for('judge.score_team', team_id=team.id) }}">
-						{{ 'Edit Score' if team.categories_scored else 'Score Team' }}
-					</a>
-				</td>
-			</tr>
-			{% else %}
-			<tr>
-				<td colspan="9" class="text-center text-muted">No teams are available for scoring.</td>
-			</tr>
-			{% endfor %}
-		</tbody>
-	</table>
-</div>
+    <div class="judge-table-card">
+        <div class="judge-table-head d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h5 class="mb-0">Scoring Queue</h5>
+            <span class="small text-secondary">Select any team to continue or revise scoring.</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table align-middle mb-0 judge-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Team</th>
+                        <th>Theme</th>
+                        <th>Project</th>
+                        <th>Progress</th>
+                        <th>Lock</th>
+                        <th>Your Total</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for team in teams %}
+                    {% set progress_percent = (team.categories_scored / category_count * 100) if category_count else 0 %}
+                    <tr style="--row-index: {{ loop.index0 }};">
+                        <td>
+                            <span class="judge-id-pill">{{ team.id }}</span>
+                        </td>
+                        <td>
+                            <div class="fw-semibold text-dark">{{ team.team_name }}</div>
+                            <div class="small text-secondary text-truncate" style="max-width: 230px;">{{ team.project_summary }}</div>
+                        </td>
+                        <td>{{ team.theme }}</td>
+                        <td class="fw-medium">{{ team.project_title }}</td>
+                        <td>
+                            <div class="d-flex justify-content-between small mb-1">
+                                <span>{{ team.categories_scored }}/{{ category_count }}</span>
+                                {% if team.is_completed %}
+                                    <span class="badge judge-badge-complete">Complete</span>
+                                {% else %}
+                                    <span class="badge judge-badge-pending">Pending</span>
+                                {% endif %}
+                            </div>
+                            <div class="judge-progress-track">
+                                <div class="judge-progress-fill" style="width: {{ '%.0f'|format(progress_percent) }}%;"></div>
+                            </div>
+                        </td>
+                        <td>
+                            {% if team.is_locked %}
+                                <span class="badge judge-badge-locked">Locked</span>
+                            {% else %}
+                                <span class="badge judge-badge-editable">Editable</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="judge-score-pill">{{ '%.2f'|format(team.judge_total) }}</span>
+                        </td>
+                        <td>
+                            <a class="btn btn-sm judge-btn-primary" href="{{ url_for('judge.score_team', team_id=team.id) }}">
+                                {{ 'Edit Score' if team.categories_scored else 'Score Team' }}
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="8" class="text-center text-secondary py-5">No teams are available for scoring.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap');
+
+.judge-dash-shell {
+    --ink: #123047;
+    --ink-soft: #5f7081;
+    --accent: #067bc2;
+    --accent-2: #00a6a6;
+    --surface: #ffffff;
+    --line: rgba(9, 58, 87, 0.12);
+    font-family: 'Manrope', 'Segoe UI', sans-serif;
+    position: relative;
+    isolation: isolate;
+}
+
+.judge-dash-shell::before,
+.judge-dash-shell::after {
+    content: '';
+    position: fixed;
+    z-index: -1;
+    border-radius: 50%;
+    filter: blur(50px);
+    opacity: 0.28;
+    pointer-events: none;
+}
+
+.judge-dash-shell::before {
+    width: 260px;
+    height: 260px;
+    right: -90px;
+    top: 90px;
+    background: #4ecdc4;
+}
+
+.judge-dash-shell::after {
+    width: 220px;
+    height: 220px;
+    left: -70px;
+    bottom: 70px;
+    background: #f4a261;
+}
+
+.judge-kicker {
+    display: inline-block;
+    padding: 0.28rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(6, 123, 194, 0.1);
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.judge-dash-hero {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.35rem;
+    border-radius: 1.1rem;
+    background: linear-gradient(130deg, #ffffff, #f2fbff);
+    border: 1px solid var(--line);
+    box-shadow: 0 14px 32px rgba(18, 48, 71, 0.08);
+    animation: judgeRise 0.55s ease;
+}
+
+.judge-dash-hero h2 {
+    font-family: 'Sora', 'Manrope', sans-serif;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.judge-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(92px, 1fr));
+    gap: 0.65rem;
+    min-width: 320px;
+}
+
+.judge-metric-card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 0.9rem;
+    padding: 0.7rem 0.75rem;
+    text-align: center;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.judge-metric-card span {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+    margin-bottom: 0.12rem;
+}
+
+.judge-metric-card strong {
+    font-family: 'Sora', 'Manrope', sans-serif;
+    font-size: 1.28rem;
+    color: var(--ink);
+}
+
+.judge-focus-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 1rem;
+    border-radius: 1rem;
+    background: linear-gradient(90deg, rgba(6, 123, 194, 0.08), rgba(0, 166, 166, 0.06));
+    border: 1px solid rgba(6, 123, 194, 0.16);
+}
+
+.judge-focus-grid {
+    display: grid;
+    gap: 0.55rem;
+    grid-template-columns: repeat(3, minmax(130px, 1fr));
+    flex: 1;
+}
+
+.judge-focus-chip {
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(6, 123, 194, 0.14);
+    border-radius: 0.75rem;
+    padding: 0.55rem 0.7rem;
+}
+
+.chip-label {
+    display: block;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+}
+
+.judge-focus-chip strong {
+    color: var(--ink);
+    font-size: 0.98rem;
+    font-weight: 700;
+}
+
+.status-chip.is-running {
+    color: #087f5b;
+}
+
+.status-chip.is-paused {
+    color: #9b2226;
+}
+
+.judge-btn-primary,
+.judge-btn-outline {
+    border-radius: 999px;
+    font-weight: 700;
+    padding-left: 0.85rem;
+    padding-right: 0.85rem;
+}
+
+.judge-btn-primary {
+    color: #fff;
+    background: linear-gradient(110deg, #067bc2, #0096c7);
+    border: none;
+    box-shadow: 0 10px 18px rgba(6, 123, 194, 0.24);
+}
+
+.judge-btn-primary:hover {
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+.judge-btn-outline {
+    border: 1px solid rgba(6, 123, 194, 0.35);
+    color: #0c4f77;
+    background: #fff;
+}
+
+.judge-btn-outline:hover {
+    color: #0c4f77;
+    border-color: #067bc2;
+    background: rgba(6, 123, 194, 0.08);
+}
+
+.judge-table-card {
+    border-radius: 1.05rem;
+    border: 1px solid var(--line);
+    background: #fff;
+    box-shadow: 0 14px 30px rgba(18, 48, 71, 0.08);
+    overflow: hidden;
+}
+
+.judge-table-head {
+    padding: 0.95rem 1rem;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(90deg, rgba(6, 123, 194, 0.08), rgba(6, 123, 194, 0.02));
+}
+
+.judge-table thead th {
+    border: none;
+    background: #f4f8fb;
+    color: #3d5366;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.judge-table tbody tr {
+    animation: judgeRise 0.45s ease both;
+    animation-delay: calc(var(--row-index, 0) * 0.03s);
+}
+
+.judge-table tbody td {
+    border-color: rgba(18, 48, 71, 0.08);
+}
+
+.judge-table tbody tr:hover {
+    background: rgba(6, 123, 194, 0.05);
+}
+
+.judge-id-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 42px;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(6, 123, 194, 0.13);
+    color: #0d5b8b;
+    font-weight: 700;
+    font-size: 0.78rem;
+}
+
+.judge-score-pill {
+    display: inline-block;
+    padding: 0.28rem 0.55rem;
+    border-radius: 0.55rem;
+    background: rgba(5, 150, 105, 0.12);
+    color: #0a6645;
+    font-weight: 700;
+}
+
+.judge-progress-track {
+    height: 0.42rem;
+    background: #d9e2ec;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.judge-progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #00a6a6, #067bc2);
+}
+
+.judge-badge-complete {
+    background: rgba(8, 127, 91, 0.13);
+    color: #0b6b4c;
+}
+
+.judge-badge-pending {
+    background: rgba(244, 162, 97, 0.2);
+    color: #9f4f00;
+}
+
+.judge-badge-locked {
+    background: rgba(20, 48, 71, 0.14);
+    color: #102a43;
+}
+
+.judge-badge-editable {
+    background: rgba(9, 99, 132, 0.12);
+    color: #09537f;
+}
+
+@keyframes judgeRise {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (max-width: 991px) {
+    .judge-dash-hero {
+        flex-direction: column;
+    }
+
+    .judge-metric-grid {
+        min-width: 100%;
+    }
+
+    .judge-focus-card {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .judge-focus-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
 
 <script>
 (function () {
-	const heartbeatUrl = "{{ url_for('judge.heartbeat') }}";
-	const presentationStateUrl = "{{ url_for('admin.presentation_timer_state') }}";
-	const stateTextElement = document.getElementById('judge-presentation-state-text');
-	const currentTeamLink = document.getElementById('judge-current-team-link');
-	const nextTeamLink = document.getElementById('judge-next-team-link');
+    const heartbeatUrl = "{{ url_for('judge.heartbeat') }}";
+    const presentationStateUrl = "{{ url_for('admin.presentation_timer_state') }}";
+    const currentTeamElement = document.getElementById('judge-presentation-current');
+    const nextTeamElement = document.getElementById('judge-presentation-next');
+    const statusElement = document.getElementById('judge-presentation-status');
+    const currentTeamLink = document.getElementById('judge-current-team-link');
+    const nextTeamLink = document.getElementById('judge-next-team-link');
 
-	function applyTeamLink(linkElement, teamId, teamName) {
-		if (!linkElement) {
-			return;
-		}
+    function applyTeamLink(linkElement, teamId, teamName) {
+        if (!linkElement) {
+            return;
+        }
 
-		if (!teamId) {
-			linkElement.classList.add('disabled');
-			linkElement.setAttribute('aria-disabled', 'true');
-			linkElement.href = '#';
-			return;
-		}
+        if (!teamId) {
+            linkElement.classList.add('disabled');
+            linkElement.setAttribute('aria-disabled', 'true');
+            linkElement.href = '#';
+            linkElement.title = '';
+            return;
+        }
 
-		linkElement.classList.remove('disabled');
-		linkElement.removeAttribute('aria-disabled');
-		linkElement.href = '/judge/teams/' + String(teamId) + '/score';
-		if (teamName) {
-			linkElement.title = String(teamName);
-		}
-	}
+        linkElement.classList.remove('disabled');
+        linkElement.removeAttribute('aria-disabled');
+        linkElement.href = '/judge/teams/' + String(teamId) + '/score';
+        linkElement.title = teamName ? String(teamName) : '';
+    }
 
-	async function sendHeartbeat() {
-		try {
-			await fetch(heartbeatUrl, {
-				method: 'POST',
-				headers: {
-					'X-Requested-With': 'XMLHttpRequest',
-				},
-			});
-		} catch (error) {
-			// Ignore transient heartbeat failures.
-		}
-	}
+    async function sendHeartbeat() {
+        try {
+            await fetch(heartbeatUrl, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+        } catch (error) {
+            // Ignore transient heartbeat failures.
+        }
+    }
 
-	async function refreshPresentationFocus() {
-		if (!stateTextElement) {
-			return;
-		}
+    async function refreshPresentationFocus() {
+        if (!currentTeamElement || !nextTeamElement || !statusElement) {
+            return;
+        }
 
-		try {
-			const response = await fetch(presentationStateUrl, { cache: 'no-store' });
-			if (!response.ok) {
-				return;
-			}
+        try {
+            const response = await fetch(presentationStateUrl, { cache: 'no-store' });
+            if (!response.ok) {
+                return;
+            }
 
-			const payload = await response.json();
-			if (!payload || payload.ok === false) {
-				return;
-			}
+            const payload = await response.json();
+            if (!payload || payload.ok === false) {
+                return;
+            }
 
-			const runningText = payload.running ? 'Timer running' : 'Timer paused';
-			const currentTeamName = payload.current_team_name || '-';
-			const nextTeamName = payload.next_team_name || '-';
-			stateTextElement.textContent = 'Current: ' + currentTeamName + ' | Next: ' + nextTeamName + ' | ' + runningText;
+            currentTeamElement.textContent = payload.current_team_name || '-';
+            nextTeamElement.textContent = payload.next_team_name || '-';
+            statusElement.textContent = payload.running ? 'Running' : 'Paused';
+            statusElement.classList.toggle('is-running', Boolean(payload.running));
+            statusElement.classList.toggle('is-paused', !payload.running);
 
-			applyTeamLink(currentTeamLink, payload.current_team_id, payload.current_team_name);
-			applyTeamLink(nextTeamLink, payload.next_team_id, payload.next_team_name);
-		} catch (error) {
-			// Ignore temporary polling errors.
-		}
-	}
+            applyTeamLink(currentTeamLink, payload.current_team_id, payload.current_team_name);
+            applyTeamLink(nextTeamLink, payload.next_team_id, payload.next_team_name);
+        } catch (error) {
+            // Ignore temporary polling errors.
+        }
+    }
 
-	sendHeartbeat();
-	refreshPresentationFocus();
-	setInterval(sendHeartbeat, 10000);
-	setInterval(refreshPresentationFocus, 2000);
+    sendHeartbeat();
+    refreshPresentationFocus();
+    setInterval(sendHeartbeat, 10000);
+    setInterval(refreshPresentationFocus, 2000);
 })();
 </script>
 {% endblock %}

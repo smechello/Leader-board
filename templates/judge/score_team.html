@@ -23,101 +23,110 @@
 </a>
 {% endif %}
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h2 class="mb-0">Score Team: {{ team.team_name }}</h2>
-    <a class="btn btn-outline-secondary" href="{{ url_for('judge.dashboard') }}">Back to Dashboard</a>
-</div>
+<section class="judge-score-shell">
+    <div class="judge-score-hero mb-3">
+        <div>
+            <p class="judge-score-kicker mb-2">Team Evaluation</p>
+            <h2 class="mb-1">Score Team: {{ team.team_name }}</h2>
+            <p class="small text-secondary mb-0">Use Left and Right arrow keys to navigate between teams quickly.</p>
+        </div>
+        <a class="btn judge-btn-ghost" href="{{ url_for('judge.dashboard') }}">Back to Dashboard</a>
+    </div>
 
-<p class="text-muted small mb-3">Use Left/Right arrow keys to move to previous/next team.</p>
-
-<div class="card mb-4">
-    <div class="card-body">
-        <div class="row g-3">
-            <div class="col-md-4">
-                <label class="form-label text-muted">Theme</label>
-                <div>{{ team.theme }}</div>
+    <div class="judge-meta-card mb-4">
+        <div class="judge-meta-grid">
+            <div>
+                <label class="form-label text-secondary mb-1">Theme</label>
+                <div class="fw-semibold">{{ team.theme }}</div>
             </div>
-            <div class="col-md-8">
-                <label class="form-label text-muted">Project Title</label>
-                <div>{{ team.project.project_title if team.project else '-' }}</div>
+            <div>
+                <label class="form-label text-secondary mb-1">Project Title</label>
+                <div class="fw-semibold">{{ team.project.project_title if team.project else '-' }}</div>
             </div>
-            <div class="col-12">
-                <label class="form-label text-muted">Project Summary</label>
+            <div class="meta-summary">
+                <label class="form-label text-secondary mb-1">Project Summary</label>
                 <div>{{ team.project.project_summary if team.project else '-' }}</div>
             </div>
         </div>
     </div>
-</div>
 
-<form method="post" class="card">
-    <div class="card-body">
-        {% if existing_snapshot.is_locked %}
-        <div class="alert alert-dark" role="alert">
-            This scorecard is locked. Editing is disabled.
-        </div>
-        {% endif %}
-
-        <div class="row g-3">
-            {% for category in category_definitions %}
-            <div class="col-md-6">
-                <label for="{{ category.key }}" class="form-label">
-                    {{ category.label }} ({{ category.weight_percent }}%)
-                </label>
-                <input
-                    type="number"
-                    id="{{ category.key }}"
-                    name="{{ category.key }}"
-                    class="form-control score-input"
-                    data-multiplier="{{ category.multiplier }}"
-                    data-max-score="{{ category.max_score }}"
-                    min="0"
-                    max="{{ category.max_score }}"
-                    step="0.01"
-                    value="{{ score_values.get(category.key) if score_values.get(category.key) is not none else '' }}"
-                    {% if existing_snapshot.is_locked %}disabled{% endif %}
-                    required>
-                <div class="form-text">Enter a score between 0 and {{ '%.2f'|format(category.max_score) }}.</div>
+    <form method="post" class="judge-form-card">
+        <div class="card-body p-4">
+            {% if existing_snapshot.is_locked %}
+            <div class="judge-lock-banner mb-3" role="alert">
+                This scorecard is locked. Editing is disabled.
             </div>
-            {% endfor %}
+            {% endif %}
 
-            <div class="col-12">
-                <label for="remarks" class="form-label">Remarks (Optional)</label>
-                <textarea id="remarks" name="remarks" class="form-control" rows="3" {% if existing_snapshot.is_locked %}disabled{% endif %}>{{ remarks }}</textarea>
-            </div>
-
-            <div class="col-12">
-                <div class="p-3 border rounded bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
-                    <div>
-                        <strong>Live Weighted Total (0-100):</strong>
-                        <span id="live-total">{{ '%.2f'|format(preview_total) }}</span>
+            <div class="row g-3">
+                {% for category in category_definitions %}
+                <div class="col-lg-6">
+                    <div class="judge-category-card h-100">
+                        <div class="d-flex align-items-center justify-content-between mb-2 gap-2">
+                            <label for="{{ category.key }}" class="form-label mb-0 fw-semibold">
+                                {{ category.label }}
+                            </label>
+                            <span class="judge-weight-chip">{{ category.weight_percent }}%</span>
+                        </div>
+                        <input
+                            type="number"
+                            id="{{ category.key }}"
+                            name="{{ category.key }}"
+                            class="form-control score-input judge-score-input"
+                            data-multiplier="{{ category.multiplier }}"
+                            data-max-score="{{ category.max_score }}"
+                            min="0"
+                            max="{{ category.max_score }}"
+                            step="0.01"
+                            value="{{ score_values.get(category.key) if score_values.get(category.key) is not none else '' }}"
+                            {% if existing_snapshot.is_locked %}disabled{% endif %}
+                            required>
+                        <div class="form-text mt-2">Range: 0 to {{ '%.2f'|format(category.max_score) }}</div>
                     </div>
-                    <div class="text-muted">
-                        Previously saved categories: {{ existing_snapshot.categories_scored }} / 4
+                </div>
+                {% endfor %}
+
+                <div class="col-12">
+                    <div class="judge-remarks-card">
+                        <label for="remarks" class="form-label fw-semibold">Remarks (Optional)</label>
+                        <textarea id="remarks" name="remarks" class="form-control judge-remarks-input" rows="3" {% if existing_snapshot.is_locked %}disabled{% endif %}>{{ remarks }}</textarea>
+                    </div>
+                </div>
+
+                <div class="col-12">
+                    <div class="judge-total-panel">
+                        <div>
+                            <div class="small text-uppercase text-secondary mb-1">Live Weighted Total</div>
+                            <div class="judge-total-value"><span id="live-total">{{ '%.2f'|format(preview_total) }}</span> / 100</div>
+                        </div>
+                        <div class="small text-secondary">
+                            Previously saved categories: <strong>{{ existing_snapshot.categories_scored }} / 4</strong>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <div class="card-footer bg-white d-flex justify-content-end gap-2 flex-wrap">
-        {% if existing_snapshot.is_locked %}
-        <a href="{{ url_for('judge.dashboard') }}" class="btn btn-outline-secondary">Back to Dashboard</a>
-        {% else %}
-        <button
-            type="submit"
-            name="action"
-            value="clear"
-            class="btn btn-outline-danger me-auto"
-            formnovalidate
-            onclick="return confirm('Clear all saved scores for this team?');">
-            Clear Scores
-        </button>
-        <button type="submit" name="action" value="save" class="btn btn-primary">Save Scores</button>
-        <button type="submit" name="action" value="save_next" class="btn btn-outline-primary">Save and Next Team</button>
-        <button type="submit" name="action" value="save_lock" class="btn btn-dark">Save and Lock</button>
-        {% endif %}
-    </div>
-</form>
+        <div class="card-footer bg-white d-flex justify-content-end gap-2 flex-wrap px-4 pb-4 border-0">
+            {% if existing_snapshot.is_locked %}
+            <a href="{{ url_for('judge.dashboard') }}" class="btn judge-btn-ghost">Back to Dashboard</a>
+            {% else %}
+            <button
+                type="submit"
+                name="action"
+                value="clear"
+                class="btn judge-btn-danger me-auto"
+                formnovalidate
+                onclick="return confirm('Clear all saved scores for this team?');">
+                Clear Scores
+            </button>
+            <button type="submit" name="action" value="save" class="btn judge-btn-primary">Save Scores</button>
+            <button type="submit" name="action" value="save_next" class="btn judge-btn-outline">Save and Next Team</button>
+            <button type="submit" name="action" value="save_lock" class="btn judge-btn-dark">Save and Lock</button>
+            {% endif %}
+        </div>
+    </form>
+</section>
 
 <div
     id="team-nav-config"
@@ -136,16 +145,240 @@
 </div>
 
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap');
+
+.judge-score-shell {
+    --ink: #12263a;
+    --ink-soft: #627d98;
+    --line: rgba(18, 38, 58, 0.12);
+    --brand: #0a84c1;
+    --brand-2: #16a085;
+    --warn: #f4a261;
+    font-family: 'Manrope', 'Segoe UI', sans-serif;
+    position: relative;
+    isolation: isolate;
+}
+
+.judge-score-shell::before {
+    content: '';
+    position: fixed;
+    width: 270px;
+    height: 270px;
+    border-radius: 50%;
+    right: -90px;
+    top: 130px;
+    z-index: -1;
+    opacity: 0.2;
+    background: #31c48d;
+    filter: blur(50px);
+    pointer-events: none;
+}
+
+.judge-score-hero {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 1.15rem;
+    border-radius: 1rem;
+    border: 1px solid var(--line);
+    background: linear-gradient(115deg, #ffffff, #f4fbff);
+    box-shadow: 0 14px 32px rgba(18, 38, 58, 0.08);
+    animation: judgeLift 0.55s ease;
+}
+
+.judge-score-kicker {
+    display: inline-block;
+    padding: 0.28rem 0.64rem;
+    border-radius: 999px;
+    background: rgba(10, 132, 193, 0.12);
+    color: #0a5f8d;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.judge-score-hero h2 {
+    margin: 0;
+    font-family: 'Sora', 'Manrope', sans-serif;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.judge-meta-card {
+    border-radius: 1rem;
+    border: 1px solid var(--line);
+    background: #fff;
+    box-shadow: 0 10px 24px rgba(18, 38, 58, 0.08);
+    padding: 1rem 1.1rem;
+}
+
+.judge-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.85rem;
+}
+
+.meta-summary {
+    grid-column: 1 / -1;
+}
+
+.judge-form-card {
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+    overflow: hidden;
+    box-shadow: 0 14px 34px rgba(18, 38, 58, 0.09);
+    background: #fff;
+}
+
+.judge-lock-banner {
+    border-radius: 0.75rem;
+    border: 1px solid rgba(33, 37, 41, 0.3);
+    background: rgba(33, 37, 41, 0.08);
+    color: #202124;
+    font-weight: 600;
+    padding: 0.7rem 0.8rem;
+}
+
+.judge-category-card {
+    border-radius: 0.9rem;
+    border: 1px solid rgba(10, 132, 193, 0.14);
+    background: linear-gradient(180deg, #ffffff, #f9fcff);
+    padding: 0.9rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.judge-category-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(10, 132, 193, 0.12);
+}
+
+.judge-weight-chip {
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.2rem 0.58rem;
+    color: #0c4a6e;
+    background: rgba(10, 132, 193, 0.13);
+}
+
+.judge-score-input,
+.judge-remarks-input {
+    border-color: rgba(18, 38, 58, 0.2);
+    border-radius: 0.65rem;
+    padding: 0.58rem 0.7rem;
+}
+
+.judge-score-input:focus,
+.judge-remarks-input:focus {
+    border-color: #0a84c1;
+    box-shadow: 0 0 0 0.2rem rgba(10, 132, 193, 0.14);
+}
+
+.judge-remarks-card {
+    border: 1px solid rgba(18, 38, 58, 0.12);
+    border-radius: 0.9rem;
+    padding: 0.85rem;
+    background: #fcfdff;
+}
+
+.judge-total-panel {
+    border: 1px solid rgba(10, 132, 193, 0.22);
+    border-radius: 0.9rem;
+    background: linear-gradient(90deg, rgba(10, 132, 193, 0.08), rgba(22, 160, 133, 0.08));
+    padding: 0.9rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.judge-total-value {
+    font-family: 'Sora', 'Manrope', sans-serif;
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.judge-btn-primary,
+.judge-btn-outline,
+.judge-btn-dark,
+.judge-btn-danger,
+.judge-btn-ghost {
+    border-radius: 999px;
+    font-weight: 700;
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+}
+
+.judge-btn-primary {
+    border: none;
+    color: #fff;
+    background: linear-gradient(110deg, #0a84c1, #0790c8);
+    box-shadow: 0 10px 18px rgba(10, 132, 193, 0.25);
+}
+
+.judge-btn-primary:hover {
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+.judge-btn-outline {
+    border: 1px solid rgba(10, 132, 193, 0.4);
+    color: #095c89;
+    background: #fff;
+}
+
+.judge-btn-outline:hover {
+    background: rgba(10, 132, 193, 0.08);
+    color: #095c89;
+}
+
+.judge-btn-dark {
+    border: 1px solid rgba(18, 38, 58, 0.5);
+    color: #fff;
+    background: #1f3c54;
+}
+
+.judge-btn-dark:hover {
+    color: #fff;
+    background: #1a3246;
+}
+
+.judge-btn-danger {
+    border: 1px solid rgba(198, 40, 40, 0.38);
+    color: #8f1d1d;
+    background: rgba(198, 40, 40, 0.08);
+}
+
+.judge-btn-danger:hover {
+    color: #8f1d1d;
+    background: rgba(198, 40, 40, 0.15);
+}
+
+.judge-btn-ghost {
+    border: 1px solid rgba(18, 38, 58, 0.2);
+    color: #1d4f72;
+    background: #fff;
+}
+
+.judge-btn-ghost:hover {
+    color: #1d4f72;
+    background: rgba(10, 132, 193, 0.08);
+}
+
 .judge-move-banner {
     position: fixed;
     top: 84px;
     right: 16px;
     max-width: 340px;
     z-index: 1080;
-    background: #0d6efd;
+    background: linear-gradient(120deg, #0a84c1, #16a085);
     color: #fff;
-    border-radius: 0.75rem;
-    box-shadow: 0 10px 24px rgba(13, 110, 253, 0.35);
+    border-radius: 0.8rem;
+    box-shadow: 0 12px 28px rgba(10, 132, 193, 0.38);
     padding: 0.85rem 0.95rem;
     opacity: 0;
     transform: translateX(120%);
@@ -161,6 +394,33 @@
 
 .judge-move-banner-title {
     font-weight: 700;
+}
+
+@keyframes judgeLift {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (max-width: 992px) {
+    .judge-score-hero {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .judge-meta-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .judge-total-panel {
+        flex-direction: column;
+        align-items: flex-start;
+    }
 }
 </style>
 
