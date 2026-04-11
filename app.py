@@ -1,8 +1,12 @@
 import logging
+import os
+import re
+from pathlib import Path
 
+from dotenv import load_dotenv
 from flask import Flask
 from flask_login import LoginManager
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from config import Config, validate_required_environment
@@ -34,6 +38,130 @@ def register_blueprints(app):
 	app.register_blueprint(public_bp)
 	app.register_blueprint(admin_bp)
 	app.register_blueprint(judge_bp)
+
+
+def _normalize_database_url(url):
+	if url and url.startswith("postgres://"):
+		return url.replace("postgres://", "postgresql://", 1)
+	return url
+
+
+def _resolve_database_url(app):
+	# Re-load .env to ensure DATABASE_URL is available for startup recovery.
+	load_dotenv(override=False)
+	url = (os.getenv("DATABASE_URL") or app.config.get("SQLALCHEMY_DATABASE_URI") or "").strip()
+	url = _normalize_database_url(url)
+	if not url:
+		raise RuntimeError("DATABASE_URL is missing. Add it to Leader-board/.env.")
+	return url
+
+
+def _is_database_structure_error(error):
+	message = str(error).lower()
+	indicators = (
+		"does not exist",
+		"undefined table",
+		"undefinedtable",
+		"undefined column",
+		"undefinedcolumn",
+		"undefined object",
+		"undefinedobject",
+		"no such table",
+	)
+	return any(indicator in message for indicator in indicators)
+
+
+def _load_schema_sql_for_recovery():
+	schema_path = Path(__file__).resolve().parent / "schema.sql"
+	if not schema_path.exists():
+		raise RuntimeError(f"Schema file not found: {schema_path}")
+
+	raw_sql = schema_path.read_text(encoding="utf-8")
+	lines = []
+	for line in raw_sql.splitlines():
+		normalized = line.strip().upper()
+		if normalized in {"BEGIN;", "COMMIT;"}:
+			continue
+		lines.append(line)
+
+	schema_sql = "\n".join(lines)
+
+	# Make schema execution safe to re-run for partially initialized databases.
+	schema_sql = re.sub(
+		r"CREATE TABLE(?!\s+IF NOT EXISTS)\s+",
+		"CREATE TABLE IF NOT EXISTS ",
+		schema_sql,
+		flags=re.IGNORECASE,
+	)
+
+	schema_sql = re.sub(
+		r"CREATE TYPE user_role AS ENUM\s*\(.*?\)\s*;",
+		"""
+DO $$
+BEGIN
+    CREATE TYPE user_role AS ENUM ('admin', 'judge');
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END
+$$;
+""",
+		schema_sql,
+		count=1,
+		flags=re.IGNORECASE | re.DOTALL,
+	)
+
+	schema_sql = re.sub(
+		r"CREATE TYPE score_category AS ENUM\s*\(.*?\)\s*;",
+		"""
+DO $$
+BEGIN
+    CREATE TYPE score_category AS ENUM (
+        'innovation_originality',
+        'technical_implementation',
+        'business_value_impact',
+        'presentation_clarity'
+    );
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END
+$$;
+""",
+		schema_sql,
+		count=1,
+		flags=re.IGNORECASE | re.DOTALL,
+	)
+
+	trigger_pattern = re.compile(
+		r"CREATE TRIGGER\s+([a-zA-Z0-9_]+)\s+BEFORE UPDATE ON\s+([a-zA-Z0-9_]+)\s+FOR EACH ROW EXECUTE FUNCTION set_updated_at\(\)\s*;",
+		flags=re.IGNORECASE,
+	)
+	schema_sql = trigger_pattern.sub(
+		lambda match: (
+			f"DROP TRIGGER IF EXISTS {match.group(1)} ON {match.group(2)};\n"
+			f"CREATE TRIGGER {match.group(1)} BEFORE UPDATE ON {match.group(2)} "
+			"FOR EACH ROW EXECUTE FUNCTION set_updated_at();"
+		),
+		schema_sql,
+	)
+
+	return schema_sql
+
+
+def recover_database_structure(app):
+	database_url = _resolve_database_url(app)
+	schema_sql = _load_schema_sql_for_recovery()
+
+	engine = create_engine(database_url, future=True)
+	try:
+		with engine.connect() as connection:
+			with connection.begin():
+				connection.exec_driver_sql(schema_sql)
+	except SQLAlchemyError as exc:
+		raise RuntimeError(f"Automatic schema recovery failed: {exc}") from exc
+	finally:
+		engine.dispose()
+
+	app.logger.info("Automatic schema recovery from schema.sql completed.")
 
 
 def verify_database_connection(app):
@@ -429,8 +557,20 @@ def create_app():
 
 	with app.app_context():
 		verify_database_connection(app)
-		ensure_database_compatibility(app)
-		ensure_default_scoring_settings()
+		try:
+			ensure_database_compatibility(app)
+			ensure_default_scoring_settings()
+		except (RuntimeError, SQLAlchemyError) as exc:
+			if not _is_database_structure_error(exc):
+				raise
+
+			app.logger.warning(
+				"Detected database structure error. Attempting schema recovery from schema.sql: %s",
+				exc,
+			)
+			recover_database_structure(app)
+			ensure_database_compatibility(app)
+			ensure_default_scoring_settings()
 
 	return app
 
