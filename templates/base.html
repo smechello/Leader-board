@@ -13,15 +13,22 @@
     const setStoredTheme = theme => localStorage.setItem('theme', theme);
     const setTheme = theme => {
         document.documentElement.setAttribute('data-bs-theme', theme);
+        const toggler = document.getElementById('theme-toggler');
         const icon = document.getElementById('theme-icon');
-        if(icon) {
-            icon.className = theme === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-stars-fill';
+        if (toggler) {
+            toggler.setAttribute('data-theme', theme);
+        }
+        if (icon) {
+            icon.className = theme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-brightness-high-fill';
         }
     };
+
     setTheme(getStoredTheme());
+
     window.addEventListener('DOMContentLoaded', () => {
         const toggler = document.getElementById('theme-toggler');
-        if(toggler) {
+        if (toggler) {
+            setTheme(getStoredTheme());
             toggler.addEventListener('click', () => {
                 const current = document.documentElement.getAttribute('data-bs-theme');
                 const nextTheme = current === 'dark' ? 'light' : 'dark';
@@ -38,9 +45,149 @@
 [data-bs-theme="dark"] .offcanvas { background: #1e293b; color: #e2e8f0; }
 [data-bs-theme="dark"] .text-secondary { color: #94a3b8 !important; }
 [data-bs-theme="dark"] .bg-white { background: #1e293b !important; }
+
+.theme-toggle {
+    position: relative;
+    width: 172px;
+    height: 54px;
+    border-radius: 999px;
+    border: 2px solid rgba(148, 163, 184, 0.45);
+    background: linear-gradient(145deg, #f8fafc, #e2e8f0);
+    color: #64748b;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 16px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.theme-toggle .theme-toggle-label {
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.3s ease;
+    white-space: nowrap;
+}
+
+.theme-toggle .label-light {
+    opacity: 1;
+    transform: translateX(10px);
+}
+
+.theme-toggle .label-dark {
+    opacity: 0;
+    position: absolute;
+    right: 20px;
+    color: #e2e8f0;
+}
+
+.theme-toggle .theme-toggle-knob {
+    position: absolute;
+    left: 4px;
+    top: 4px;
+    width: 42px;
+    height: 42px;
+    border-radius: 999px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #c0c7d1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    box-shadow: 0 5px 14px rgba(15, 23, 42, 0.25);
+    transition: transform 0.3s ease, background 0.3s ease, color 0.3s ease;
+}
+
+.theme-toggle[data-theme="dark"] {
+    background: linear-gradient(145deg, #1f2937, #374151);
+    border-color: rgba(15, 23, 42, 0.95);
+    color: #cbd5e1;
+}
+
+.theme-toggle[data-theme="dark"] .label-light {
+    opacity: 0;
+    transform: translateX(-10px);
+}
+
+.theme-toggle[data-theme="dark"] .label-dark {
+    opacity: 1;
+}
+
+.theme-toggle[data-theme="dark"] .theme-toggle-knob {
+    transform: translateX(120px);
+    background: #e5e7eb;
+    color: #a8b0bc;
+    border-color: #d1d5db;
+}
+
+.manual-trigger {
+    color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.manual-trigger:hover,
+.manual-trigger:focus {
+    color: #ffffff !important;
+}
+
+@media (max-width: 991.98px) {
+    .theme-toggle {
+        width: 156px;
+        height: 50px;
+        font-size: 0.72rem;
+    }
+
+    .theme-toggle .theme-toggle-knob {
+        width: 38px;
+        height: 38px;
+    }
+
+    .theme-toggle[data-theme="dark"] .theme-toggle-knob {
+        transform: translateX(106px);
+    }
+}
 </style>
 </head>
 <body>
+{% set current_endpoint = request.endpoint or '' %}
+{% set guide_icon_class = 'bi-journal-text' %}
+{% set guide_title = 'Manual' %}
+{% if current_user.is_authenticated %}
+    {% if current_user.role == 'admin' %}
+        {% if current_endpoint == 'admin.dashboard' %}
+            {% set guide_icon_class = 'bi-speedometer2' %}
+            {% set guide_title = 'Admin Dashboard Manual' %}
+        {% elif current_endpoint in ['admin.list_teams', 'admin.create_team', 'admin.edit_team', 'admin.manage_team_members', 'admin.edit_team_member'] %}
+            {% set guide_icon_class = 'bi-people-fill' %}
+            {% set guide_title = 'Team Management Manual' %}
+        {% elif current_endpoint == 'admin.presentation_control' %}
+            {% set guide_icon_class = 'bi-stopwatch-fill' %}
+            {% set guide_title = 'Presentation Control Manual' %}
+        {% elif current_endpoint == 'admin.manage_judges' %}
+            {% set guide_icon_class = 'bi-person-video3' %}
+            {% set guide_title = 'Judge Management Manual' %}
+        {% elif current_endpoint == 'admin.manage_options' %}
+            {% set guide_icon_class = 'bi-sliders2-vertical' %}
+            {% set guide_title = 'System Options Manual' %}
+        {% else %}
+            {% set guide_icon_class = 'bi-shield-check' %}
+            {% set guide_title = 'Admin Manual' %}
+        {% endif %}
+    {% elif current_user.role == 'judge' %}
+        {% if current_endpoint == 'judge.score_team' %}
+            {% set guide_icon_class = 'bi-clipboard2-data' %}
+            {% set guide_title = 'Score Entry Manual' %}
+        {% else %}
+            {% set guide_icon_class = 'bi-journal-check' %}
+            {% set guide_title = 'Judge Dashboard Manual' %}
+        {% endif %}
+    {% else %}
+        {% set guide_icon_class = 'bi-question-circle' %}
+        {% set guide_title = 'User Manual' %}
+    {% endif %}
+{% endif %}
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
     <div class="container-fluid px-4">
         <a class="navbar-brand d-flex align-items-center gap-2 fw-semibold" href="{{ url_for('public.home') }}">
@@ -60,16 +207,18 @@
             </ul>
             <ul class="navbar-nav ms-auto align-items-lg-center">
                 <li class="nav-item ms-lg-3 mt-2 mt-lg-0 d-flex align-items-center">
-                    <button class="btn btn-link nav-link px-2" id="theme-toggler" title="Toggle Theme">
-                        <i class="bi bi-moon-stars-fill" id="theme-icon"></i>
-                    </button>
-                </li>
-                <li class="nav-item">
-                    <button class="btn btn-link nav-link px-2" type="button" data-bs-toggle="offcanvas" data-bs-target="#judgeGuideOffcanvas" aria-controls="judgeGuideOffcanvas" title="User Guide">
-                        <i class="bi bi-info-circle-fill"></i>
+                    <button class="theme-toggle" id="theme-toggler" data-theme="light" title="Toggle Theme" aria-label="Toggle color theme">
+                        <span class="theme-toggle-label label-light">LIGHT MODE</span>
+                        <span class="theme-toggle-label label-dark">DARK MODE</span>
+                        <span class="theme-toggle-knob"><i class="bi bi-brightness-high-fill" id="theme-icon"></i></span>
                     </button>
                 </li>
             {% if current_user.is_authenticated %}
+                <li class="nav-item ms-2">
+                    <button class="btn btn-link nav-link px-2 manual-trigger" type="button" data-bs-toggle="offcanvas" data-bs-target="#contextGuideOffcanvas" aria-controls="contextGuideOffcanvas" title="{{ guide_title }}">
+                        <i class="bi {{ guide_icon_class }}"></i>
+                    </button>
+                </li>
                 {% if current_user.role == 'admin' %}
                     <li class="nav-item"><a class="nav-link px-3" href="{{ url_for('admin.dashboard') }}"><i class="bi bi-speedometer2 me-1"></i> Admin</a></li>
                     <li class="nav-item"><a class="nav-link px-3" href="{{ url_for('admin.list_teams') }}"><i class="bi bi-people me-1"></i> Teams</a></li>
@@ -117,41 +266,82 @@
 
     {% block content %}{% endblock %}
 </main>
-<!-- Judge Guide Offcanvas -->
-<div class="offcanvas offcanvas-end" tabindex="-1" id="judgeGuideOffcanvas" aria-labelledby="judgeGuideOffcanvasLabel">
+{% if current_user.is_authenticated %}
+<div class="offcanvas offcanvas-end" tabindex="-1" id="contextGuideOffcanvas" aria-labelledby="contextGuideOffcanvasLabel">
   <div class="offcanvas-header bg-dark text-white">
-    <h5 class="offcanvas-title" id="judgeGuideOffcanvasLabel"><i class="bi bi-book me-2"></i>Judge User Guide</h5>
+    <h5 class="offcanvas-title" id="contextGuideOffcanvasLabel"><i class="bi {{ guide_icon_class }} me-2"></i>{{ guide_title }}</h5>
     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
   </div>
   <div class="offcanvas-body">
-    <h6>Welcome to the Evaluation Console!</h6>
-    <p class="text-secondary small">This dashboard is designed to help you quickly and accurately score teams.</p>
-    
-    <div class="mb-4">
-        <h6><i class="bi bi-speedometer2 text-primary me-2"></i>Dashboard Overview</h6>
-        <ul class="small text-secondary">
-            <li><strong>Total Teams:</strong> The number of teams assigned to you.</li>
-            <li><strong>Completed:</strong> Teams you have fully scored.</li>
-            <li><strong>Locked:</strong> Scores you have finalized and cannot change.</li>
-        </ul>
-    </div>
-    
-    <div class="mb-4">
-        <h6><i class="bi bi-star-fill text-warning me-2"></i>Scoring Teams</h6>
-        <ul class="small text-secondary">
-            <li>Click <strong class="text-primary">Score Team</strong> to begin evaluating a team.</li>
-            <li>Scores calculate dynamically based on category weights.</li>
-            <li><strong>Save Scores:</strong> Saves your current progress.</li>
-            <li><strong>Save and Lock:</strong> Finalizes the score (cannot be edited later).</li>
-        </ul>
-    </div>
-    
-    <div class="mb-4">
-        <h6><i class="bi bi-bell-fill text-danger me-2"></i>Live Tracking</h6>
-        <p class="small text-secondary">The system automatically tracks the presentation state. You will see prompts to move to the Next Team automatically when the session timer advances.</p>
-    </div>
+    {% if current_user.role == 'admin' %}
+        {% if current_endpoint == 'admin.dashboard' %}
+            <h6>Dashboard At A Glance</h6>
+            <p class="text-secondary small">Track teams, judges, score volume, and pending judge requests from one place.</p>
+            <ul class="small text-secondary">
+                <li>Use <strong>Requests</strong> to review pending login approvals quickly.</li>
+                <li>Use the top navigation to jump into Teams, Judges, Options, and Presentation workflows.</li>
+                <li>Refresh is automatic for notification badges.</li>
+            </ul>
+        {% elif current_endpoint in ['admin.list_teams', 'admin.create_team', 'admin.edit_team', 'admin.manage_team_members', 'admin.edit_team_member'] %}
+            <h6>Team Management Guide</h6>
+            <p class="text-secondary small">Create and maintain complete team records with project and participant details.</p>
+            <ul class="small text-secondary">
+                <li>Keep <strong>Theme</strong> and <strong>Process</strong> fields consistent for cleaner reporting.</li>
+                <li>Team access credentials and direct links are managed from the Teams page.</li>
+                <li>Use member pages to keep participant lists accurate before evaluation starts.</li>
+            </ul>
+        {% elif current_endpoint == 'admin.presentation_control' %}
+            <h6>Presentation Control Guide</h6>
+            <p class="text-secondary small">Drive live team presentations with queue tracking and timer operations.</p>
+            <ul class="small text-secondary">
+                <li>Use <strong>Start</strong>, <strong>Pause</strong>, and <strong>Reset</strong> to control the timer.</li>
+                <li>Mark current team complete to advance queue state cleanly.</li>
+                <li>Reopen if a team needs to be moved back for re-presentation.</li>
+            </ul>
+        {% elif current_endpoint == 'admin.manage_judges' %}
+            <h6>Judge Management Guide</h6>
+            <p class="text-secondary small">Provision judge accounts, passwords, and direct login approvals.</p>
+            <ul class="small text-secondary">
+                <li>Create judges with strong passwords and valid usernames.</li>
+                <li>Review pending login requests and approve or reject in real time.</li>
+                <li>Use direct links only for short, controlled access windows.</li>
+            </ul>
+        {% elif current_endpoint == 'admin.manage_options' %}
+            <h6>System Options Guide</h6>
+            <p class="text-secondary small">Maintain themes, processes, scoring configuration, and presentation limits.</p>
+            <ul class="small text-secondary">
+                <li>Adjust scoring only when all judges are aligned on category behavior.</li>
+                <li>Keep presentation time limit aligned with event protocol.</li>
+                <li>Theme/process options here feed downstream team setup flows.</li>
+            </ul>
+        {% else %}
+            <h6>Admin Manual</h6>
+            <p class="text-secondary small">This section provides guidance specific to the active admin page.</p>
+        {% endif %}
+    {% elif current_user.role == 'judge' %}
+        {% if current_endpoint == 'judge.score_team' %}
+            <h6>Score Entry Guide</h6>
+            <p class="text-secondary small">Evaluate teams category by category and save safely.</p>
+            <ul class="small text-secondary">
+                <li>Entered scores auto-cap at each category maximum.</li>
+                <li>Progress updates when category value is greater than zero.</li>
+                <li>Use <strong>Save Scores</strong> to keep current team, or <strong>Save & Next</strong> to advance.</li>
+            </ul>
+        {% else %}
+            <h6>Judge Dashboard Guide</h6>
+            <p class="text-secondary small">Use the dashboard to monitor assigned teams and open scoring pages quickly.</p>
+            <ul class="small text-secondary">
+                <li>Status columns help prioritize pending evaluations.</li>
+                <li>Use search and sorting controls to jump to teams faster.</li>
+            </ul>
+        {% endif %}
+    {% else %}
+        <h6>User Guide</h6>
+        <p class="text-secondary small">Help content is shown according to your active role and page.</p>
+    {% endif %}
   </div>
 </div>
+{% endif %}
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 {% if current_user.is_authenticated and current_user.role == 'admin' %}
