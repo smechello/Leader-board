@@ -42,25 +42,26 @@
     <div class="row g-4">
         <!-- Left Column: Information -->
         <div class="col-xl-4 col-lg-5">
-            <div class="judge-info-card h-100">
-                <div class="card-header pb-0 border-0 bg-transparent">
-                    <h5 class="fw-bold d-flex align-items-center py-2 mb-0 judge-heading card-title">
-                        <i class="bi bi-info-square me-2 text-primary"></i> Team Profile
-                    </h5>
-                </div>
-                <div class="card-body">
-                    <div class="info-group mb-4">
-                        <div class="info-label"><i class="bi bi-palette2 me-1"></i> Theme</div>
-                        <div class="info-value fs-6">{{ team.theme }}</div>
+            <div class="judge-info-card h-100 position-relative overflow-hidden">
+                <div class="info-card-header-bg"></div>
+                <div class="card-body p-4 position-relative z-1 text-center border-bottom">
+                    <div class="team-avatar-circle mb-3 mx-auto shadow-sm">
+                        <i class="bi bi-boxes fs-2 text-primary"></i>
                     </div>
+                    <h4 class="fw-bold judge-heading mb-1">{{ team.team_name }}</h4>
+                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-3 py-2 rounded-pill mt-2">
+                        <i class="bi bi-diagram-3 me-1"></i> {{ team.theme }}
+                    </span>
+                </div>
+                <div class="card-body p-4 pt-4">
                     <div class="info-group mb-4">
-                        <div class="info-label"><i class="bi bi-laptop me-1"></i> Project Title</div>
-                        <div class="info-value fs-5 fw-bold text-gradient">{{ team.project.project_title if team.project else '-' }}</div>
+                        <div class="info-label d-flex align-items-center"><i class="bi bi-briefcase text-secondary me-2 fs-5"></i> <span class="text-uppercase small fw-bold tracking-wide">Project Title</span></div>
+                        <div class="info-value fs-5 fw-bold ms-4 ps-3 border-start border-3 border-primary">{{ team.project.project_title if team.project else 'No Title' }}</div>
                     </div>
                     <div class="info-group">
-                        <div class="info-label"><i class="bi bi-text-paragraph me-1"></i> Summary</div>
-                        <div class="info-value text-muted small lh-lg summary-bg p-3 rounded">
-                            {{ team.project.project_summary if team.project else 'No summary provided.' }}
+                        <div class="info-label d-flex align-items-center mb-2"><i class="bi bi-file-earmark-richtext text-secondary me-2 fs-5"></i> <span class="text-uppercase small fw-bold tracking-wide">Summary</span></div>
+                        <div class="info-value text-muted small lh-lg summary-bg p-3 rounded-3 border-0">
+                            {{ team.project.project_summary if team.project else 'No summary provided by the team.' }}
                         </div>
                     </div>
                 </div>
@@ -257,6 +258,36 @@ textarea::placeholder { color: var(--ink-soft); opacity: 0.6; }
     border: 1px solid var(--line);
     border-radius: 1.25rem;
     box-shadow: var(--card-shadow);
+}
+
+.info-card-header-bg {
+    height: 100px;
+    background: linear-gradient(135deg, rgba(37,99,235,0.1), rgba(14,165,233,0.1));
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    border-bottom: 1px solid var(--line);
+    z-index: 0;
+}
+[data-bs-theme="dark"] .info-card-header-bg {
+    background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(56,189,248,0.15));
+}
+.team-avatar-circle {
+    width: 64px;
+    height: 64px;
+    background: var(--surface);
+    border: 2px solid var(--line);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 2;
+    margin-top: 15px;
+}
+.tracking-wide {
+    letter-spacing: 0.05em;
 }
 
 .info-label {
