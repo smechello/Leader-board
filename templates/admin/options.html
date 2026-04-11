@@ -16,6 +16,24 @@
 
 <div class="card border-0 shadow-sm rounded-4 mb-4">
     <div class="card-header bg-white border-0 pt-4 px-4 pb-0">
+        <h5 class="fw-bold mb-1"><i class="bi bi-database-add me-2 text-info"></i>Data Management</h5>
+        <p class="text-muted small mb-0">Use one JSON file to preview and import processes, themes, teams, members, judges, and settings.</p>
+    </div>
+    <div class="card-body p-4">
+        <div class="load-data-panel d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-3">
+            <div>
+                <div class="fw-semibold mb-1">Load Data Workspace</div>
+                <div class="text-muted small mb-0">Supports <strong>Append</strong> and <strong>Clear + Load</strong> modes with password protection and preview.</div>
+            </div>
+            <a class="btn btn-info text-white load-data-btn" href="{{ url_for('admin.load_data') }}">
+                <i class="bi bi-box-arrow-up-right me-1"></i>Open Load Data
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm rounded-4 mb-4">
+    <div class="card-header bg-white border-0 pt-4 px-4 pb-0">
         <h5 class="fw-bold mb-1"><i class="bi bi-stopwatch me-2 text-danger"></i>Presentation Timer Defaults</h5>
         <p class="text-muted small mb-0">Set the default time limit used on the admin presentation page for each team slot.</p>
     </div>
@@ -283,6 +301,17 @@
 
 .admin-options-shell .form-control::placeholder {
     color: var(--op-soft);
+}
+
+.admin-options-shell .load-data-panel {
+    border: 1px dashed var(--op-line);
+    border-radius: 0.9rem;
+    padding: 1rem 1.1rem;
+    background: var(--op-surface-alt);
+}
+
+.admin-options-shell .load-data-btn {
+    white-space: nowrap;
 }
 
 [data-bs-theme="dark"] .admin-options-shell .btn-outline-secondary {
