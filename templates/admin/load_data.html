@@ -1,0 +1,418 @@
+{% extends 'base.html' %}
+
+{% block title %}Load Data{% endblock %}
+
+{% block content %}
+<section class="admin-load-shell">
+    <div class="row align-items-center mb-4">
+        <div class="col-md-8">
+            <h2 class="mb-1 fw-bold text-dark"><i class="bi bi-database-add me-2 text-primary"></i>Load Data</h2>
+            <p class="text-muted mb-0">Upload or paste a single JSON file containing processes, themes, teams, members, judges, and system settings.</p>
+        </div>
+        <div class="col-md-4 text-md-end mt-3 mt-md-0">
+            <div class="d-flex gap-2 justify-content-md-end justify-content-start flex-wrap">
+                <a class="btn btn-outline-secondary" href="{{ url_for('admin.dashboard') }}"><i class="bi bi-arrow-left me-1"></i>Dashboard</a>
+                <a class="btn btn-outline-primary" href="{{ url_for('admin.download_load_data_template') }}"><i class="bi bi-download me-1"></i>Download Template JSON</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-header bg-white border-0 px-4 pt-4 pb-1">
+            <h5 class="fw-bold mb-1"><i class="bi bi-lightning-charge me-2 text-warning"></i>Import Modes</h5>
+            <p class="text-muted small mb-0">Choose how data should be loaded, then preview structure and import when ready.</p>
+        </div>
+        <div class="card-body px-4 pb-4">
+            <form method="post" enctype="multipart/form-data" id="load-data-form" novalidate>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <label class="form-label fw-semibold">Import Strategy</label>
+                        <div class="d-flex flex-column gap-2">
+                            <label class="mode-option">
+                                <input type="radio" class="form-check-input" name="import_mode" value="append" {% if selected_mode != 'clear_load' %}checked{% endif %}>
+                                <span>
+                                    <strong>Append New Data</strong>
+                                    <small class="d-block text-muted">Adds or updates data without wiping existing database records.</small>
+                                </span>
+                            </label>
+                            <label class="mode-option mode-danger">
+                                <input type="radio" class="form-check-input" name="import_mode" value="clear_load" {% if selected_mode == 'clear_load' %}checked{% endif %}>
+                                <span>
+                                    <strong>Clear All Data and Load New Data</strong>
+                                    <small class="d-block text-muted">Wipes all existing DB data and reloads entirely from the uploaded JSON.</small>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-lg-6" id="admin-password-wrap">
+                        <label for="admin_password" class="form-label fw-semibold">Admin Password (Required for Clear + Load)</label>
+                        <input type="password" class="form-control" id="admin_password" name="admin_password" placeholder="Enter admin password">
+                        <div class="form-text">For safety, clear-and-load mode always requires password verification.</div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-5">
+                        <label for="json_file" class="form-label fw-semibold">Upload JSON File</label>
+                        <input class="form-control" type="file" id="json_file" name="json_file" accept="application/json,.json">
+                        <div class="form-text">If a file is selected, it is used first. Otherwise pasted JSON is used.</div>
+                    </div>
+                    <div class="col-md-7">
+                        <label for="json_payload" class="form-label fw-semibold">Or Paste JSON</label>
+                        <textarea
+                            class="form-control font-monospace"
+                            id="json_payload"
+                            name="json_payload"
+                            rows="14"
+                            spellcheck="false"
+                            placeholder="Paste complete JSON payload here...">{{ json_payload }}</textarea>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="submit" formaction="{{ url_for('admin.preview_load_data') }}" class="btn btn-outline-primary">
+                        <i class="bi bi-search me-1"></i>Preview Structure
+                    </button>
+                    <button type="submit" formaction="{{ url_for('admin.import_load_data') }}" class="btn btn-primary">
+                        <i class="bi bi-database-check me-1"></i>Load Data Now
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if preview %}
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-header bg-white border-0 px-4 pt-4 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h5 class="fw-bold mb-0"><i class="bi bi-diagram-3 me-2 text-info"></i>Structure Preview</h5>
+            <span class="badge rounded-pill bg-info-subtle text-info border border-info-subtle px-3 py-2">Mode: {{ 'Clear + Load' if preview.mode == 'clear_load' else 'Append' }}</span>
+        </div>
+        <div class="card-body px-4 pb-4">
+            <div class="row g-3 mb-4">
+                <div class="col-6 col-lg-2"><div class="preview-metric"><div class="label">Processes</div><div class="value">{{ preview.counts.processes }}</div></div></div>
+                <div class="col-6 col-lg-2"><div class="preview-metric"><div class="label">Themes</div><div class="value">{{ preview.counts.themes }}</div></div></div>
+                <div class="col-6 col-lg-2"><div class="preview-metric"><div class="label">Teams</div><div class="value">{{ preview.counts.teams }}</div></div></div>
+                <div class="col-6 col-lg-2"><div class="preview-metric"><div class="label">Members</div><div class="value">{{ preview.counts.members }}</div></div></div>
+                <div class="col-6 col-lg-2"><div class="preview-metric"><div class="label">Judges</div><div class="value">{{ preview.counts.judges }}</div></div></div>
+                <div class="col-6 col-lg-2"><div class="preview-metric"><div class="label">Scoring</div><div class="value">{{ 'Custom' if preview.has_custom_scoring else 'Default' }}</div></div></div>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-lg-6">
+                    <h6 class="fw-bold mb-2">Operations Summary</h6>
+                    <ul class="list-group list-group-flush rounded border">
+                        <li class="list-group-item d-flex justify-content-between"><span>Processes (new / existing)</span><strong>{{ preview.operations.processes_new }} / {{ preview.operations.processes_existing }}</strong></li>
+                        <li class="list-group-item d-flex justify-content-between"><span>Themes (new / existing)</span><strong>{{ preview.operations.themes_new }} / {{ preview.operations.themes_existing }}</strong></li>
+                        <li class="list-group-item d-flex justify-content-between"><span>Teams (create / update)</span><strong>{{ preview.operations.teams_create }} / {{ preview.operations.teams_update }}</strong></li>
+                        <li class="list-group-item d-flex justify-content-between"><span>Judges (create / update)</span><strong>{{ preview.operations.judges_create }} / {{ preview.operations.judges_update }}</strong></li>
+                    </ul>
+                </div>
+                <div class="col-lg-6">
+                    <h6 class="fw-bold mb-2">Flags</h6>
+                    <ul class="list-group list-group-flush rounded border">
+                        <li class="list-group-item d-flex justify-content-between"><span>Custom Scoring Rules</span><strong>{{ 'Yes' if preview.has_custom_scoring else 'No' }}</strong></li>
+                        <li class="list-group-item d-flex justify-content-between"><span>Custom Presentation Limit</span><strong>{{ 'Yes' if preview.has_custom_presentation_limit else 'No' }}</strong></li>
+                        <li class="list-group-item d-flex justify-content-between"><span>Generated Judge Credentials</span><strong>{{ preview.generated_judge_credentials|length }}</strong></li>
+                        <li class="list-group-item d-flex justify-content-between"><span>Generated Team Portal Credentials</span><strong>{{ preview.generated_portal_credentials|length }}</strong></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="row g-3 mt-2">
+                <div class="col-lg-6">
+                    <h6 class="fw-bold mb-2">Teams</h6>
+                    <div class="table-responsive border rounded">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Team</th>
+                                    <th>Process</th>
+                                    <th>Theme</th>
+                                    <th>Members</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for team in preview.teams %}
+                                <tr>
+                                    <td>{{ team.team_name }}</td>
+                                    <td>{{ team.process }}</td>
+                                    <td>{{ team.theme }}</td>
+                                    <td>{{ team.members }}</td>
+                                    <td><span class="badge rounded-pill {% if team.action == 'create' %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ team.action|title }}</span></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <h6 class="fw-bold mb-2">Judges</h6>
+                    <div class="table-responsive border rounded">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Username</th>
+                                    <th>Password</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for judge in preview.judges %}
+                                <tr>
+                                    <td>{{ judge.display_name }}</td>
+                                    <td>{{ judge.username }}</td>
+                                    <td>{{ 'Provided/Generated' if judge.has_password else 'No Change' }}</td>
+                                    <td><span class="badge rounded-pill {% if judge.action == 'create' %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ judge.action|title }}</span></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if preview.generated_judge_credentials %}
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-header bg-white border-0 px-4 pt-4 pb-2">
+            <h5 class="fw-bold mb-0 text-warning"><i class="bi bi-key-fill me-2"></i>Generated Judge Credentials</h5>
+        </div>
+        <div class="card-body px-4 pb-4">
+            <div class="table-responsive border rounded">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Display Name</th>
+                            <th>Username</th>
+                            <th>Password</th>
+                            <th>Generated</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in preview.generated_judge_credentials %}
+                        <tr>
+                            <td>{{ row.display_name }}</td>
+                            <td>{{ row.username }}</td>
+                            <td class="font-monospace">{{ row.password }}</td>
+                            <td>
+                                {% if row.generated_username %}<span class="badge text-bg-info me-1">Username</span>{% endif %}
+                                {% if row.generated_password %}<span class="badge text-bg-warning">Password</span>{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if preview.generated_portal_credentials %}
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-header bg-white border-0 px-4 pt-4 pb-2">
+            <h5 class="fw-bold mb-0 text-warning"><i class="bi bi-link-45deg me-2"></i>Generated Team Portal Credentials</h5>
+        </div>
+        <div class="card-body px-4 pb-4">
+            <div class="table-responsive border rounded">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Team</th>
+                            <th>Login ID</th>
+                            <th>Password</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in preview.generated_portal_credentials %}
+                        <tr>
+                            <td>{{ row.team_name }}</td>
+                            <td class="font-monospace">{{ row.login_id }}</td>
+                            <td class="font-monospace">{{ row.password }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {% if import_result %}
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-header bg-white border-0 px-4 pt-4 pb-2">
+            <h5 class="fw-bold mb-0 text-success"><i class="bi bi-check2-circle me-2"></i>Import Completed</h5>
+        </div>
+        <div class="card-body px-4 pb-4">
+            <div class="row g-3 small">
+                <div class="col-sm-6 col-lg-3"><div class="summary-item"><span>Processes Created</span><strong>{{ import_result.processes_created }}</strong></div></div>
+                <div class="col-sm-6 col-lg-3"><div class="summary-item"><span>Themes Created</span><strong>{{ import_result.themes_created }}</strong></div></div>
+                <div class="col-sm-6 col-lg-3"><div class="summary-item"><span>Teams Created/Updated</span><strong>{{ import_result.teams_created }} / {{ import_result.teams_updated }}</strong></div></div>
+                <div class="col-sm-6 col-lg-3"><div class="summary-item"><span>Members Created/Updated</span><strong>{{ import_result.members_created }} / {{ import_result.members_updated }}</strong></div></div>
+                <div class="col-sm-6 col-lg-3"><div class="summary-item"><span>Judges Created/Updated</span><strong>{{ import_result.judges_created }} / {{ import_result.judges_updated }}</strong></div></div>
+                <div class="col-sm-6 col-lg-3"><div class="summary-item"><span>Scoring Rules Updated</span><strong>{{ import_result.scoring_rules_updated }}</strong></div></div>
+                <div class="col-sm-6 col-lg-3"><div class="summary-item"><span>Presentation Limit</span><strong>{{ 'Updated' if import_result.presentation_limit_updated else 'Unchanged' }}</strong></div></div>
+                <div class="col-sm-6 col-lg-3"><div class="summary-item"><span>Mode</span><strong>{{ import_result.mode }}</strong></div></div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</section>
+
+<style>
+.admin-load-shell {
+    --ld-ink: #0f172a;
+    --ld-soft: #64748b;
+    --ld-surface: #ffffff;
+    --ld-surface-alt: #f8fafc;
+    --ld-line: #e2e8f0;
+    --ld-shadow: 0 0.5rem 1rem rgba(15, 23, 42, 0.08);
+    color: var(--ld-ink);
+}
+
+[data-bs-theme="dark"] .admin-load-shell {
+    --ld-ink: #e2e8f0;
+    --ld-soft: #94a3b8;
+    --ld-surface: #1e293b;
+    --ld-surface-alt: #0f172a;
+    --ld-line: rgba(148, 163, 184, 0.28);
+    --ld-shadow: 0 0.75rem 1.25rem rgba(2, 6, 23, 0.35);
+}
+
+.admin-load-shell .text-dark,
+.admin-load-shell h1,
+.admin-load-shell h2,
+.admin-load-shell h3,
+.admin-load-shell h4,
+.admin-load-shell h5,
+.admin-load-shell h6 {
+    color: var(--ld-ink) !important;
+}
+
+.admin-load-shell .text-muted,
+.admin-load-shell .form-text {
+    color: var(--ld-soft) !important;
+}
+
+.admin-load-shell .card {
+    background: var(--ld-surface);
+    border-color: var(--ld-line) !important;
+    box-shadow: var(--ld-shadow) !important;
+}
+
+.admin-load-shell .card-header.bg-white {
+    background: transparent !important;
+    border-color: var(--ld-line) !important;
+}
+
+.admin-load-shell .form-control,
+.admin-load-shell .form-select,
+.admin-load-shell .input-group-text,
+.admin-load-shell textarea,
+.admin-load-shell .list-group-item,
+.admin-load-shell .table {
+    background: var(--ld-surface-alt);
+    color: var(--ld-ink);
+    border-color: var(--ld-line);
+}
+
+.admin-load-shell .table {
+    --bs-table-bg: transparent;
+    --bs-table-color: var(--ld-ink);
+    --bs-table-border-color: var(--ld-line);
+}
+
+.admin-load-shell .table-light {
+    --bs-table-bg: var(--ld-surface-alt);
+    --bs-table-color: var(--ld-soft);
+}
+
+.mode-option {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    border: 1px solid var(--ld-line);
+    border-radius: 0.75rem;
+    padding: 0.75rem;
+    background: var(--ld-surface-alt);
+}
+
+.mode-option.mode-danger {
+    border-color: rgba(220, 53, 69, 0.35);
+}
+
+.preview-metric {
+    border: 1px solid var(--ld-line);
+    border-radius: 0.65rem;
+    padding: 0.7rem;
+    background: var(--ld-surface-alt);
+}
+
+.preview-metric .label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ld-soft);
+}
+
+.preview-metric .value {
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+.summary-item {
+    border: 1px solid var(--ld-line);
+    border-radius: 0.6rem;
+    padding: 0.65rem;
+    background: var(--ld-surface-alt);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.summary-item span {
+    color: var(--ld-soft);
+}
+
+.summary-item strong {
+    color: var(--ld-ink);
+}
+
+@media (max-width: 991.98px) {
+    #json_payload {
+        min-height: 300px;
+    }
+}
+</style>
+
+<script>
+(function () {
+    const modeInputs = document.querySelectorAll('input[name="import_mode"]');
+    const adminPasswordWrap = document.getElementById('admin-password-wrap');
+    const adminPasswordInput = document.getElementById('admin_password');
+
+    function updateModeUi() {
+        const selected = document.querySelector('input[name="import_mode"]:checked');
+        const isClearMode = selected && selected.value === 'clear_load';
+        if (!adminPasswordWrap || !adminPasswordInput) {
+            return;
+        }
+
+        adminPasswordWrap.style.display = isClearMode ? '' : 'none';
+        adminPasswordInput.required = Boolean(isClearMode);
+        if (!isClearMode) {
+            adminPasswordInput.value = '';
+        }
+    }
+
+    modeInputs.forEach((input) => {
+        input.addEventListener('change', updateModeUi);
+    });
+
+    updateModeUi();
+})();
+</script>
+{% endblock %}

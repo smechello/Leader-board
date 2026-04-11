@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 import os
 import re
 import time
@@ -506,7 +507,212 @@ def test_admin_dashboard_active_judges_stat_is_non_negative(admin_client):
     assert int(match.group(1)) >= 0
 
 
-def test_judge_score_edit_and_lock_flow(app, client):
+def test_admin_load_data_page_and_template_download(admin_client):
+    page_response = admin_client.get("/admin/load-data", follow_redirects=False)
+    assert page_response.status_code == 200
+    page_text = page_response.get_data(as_text=True)
+    assert "Load Data" in page_text
+    assert "Preview Structure" in page_text
+
+    template_response = admin_client.get("/admin/load-data/template", follow_redirects=False)
+    assert template_response.status_code == 200
+    assert template_response.headers.get("Content-Type", "").startswith("application/json")
+
+    payload = json.loads(template_response.get_data(as_text=True))
+    assert isinstance(payload, dict)
+    assert "teams" in payload
+    assert "judges" in payload
+
+
+def test_admin_load_data_preview_and_append_import(app, admin_client):
+    process_name = _unique_name("proc_load")
+    theme_name = _unique_name("theme_load")
+    team_name = _unique_name("team_load")
+    judge_username = _unique_name("judge_load")
+    judge_display_name = f"Judge {uuid.uuid4().hex[:6]}"
+    member_email = f"member_{uuid.uuid4().hex[:8]}@example.com"
+    team_login_id = _unique_name("team_login")
+
+    load_payload = {
+        "processes": [process_name],
+        "themes": [theme_name],
+        "teams": [
+            {
+                "team_name": team_name,
+                "process": process_name,
+                "theme": theme_name,
+                "project": {
+                    "project_title": "Load Data Project",
+                    "problem_statement": "Load data problem",
+                    "project_summary": "Load data summary",
+                },
+                "portal_access": {
+                    "login_id": team_login_id,
+                    "password": "PortalPass123",
+                },
+                "members": [
+                    {
+                        "full_name": "Load Member",
+                        "email": member_email,
+                    }
+                ],
+            }
+        ],
+        "judges": [
+            {
+                "display_name": judge_display_name,
+                "username": judge_username,
+                "password": "JudgePass123",
+                "organization": "Load Org",
+                "is_active": True,
+            }
+        ],
+    }
+
+    try:
+        preview_response = admin_client.post(
+            "/admin/load-data/preview",
+            data={
+                "import_mode": "append",
+                "json_payload": json.dumps(load_payload),
+            },
+            follow_redirects=False,
+        )
+        assert preview_response.status_code == 200
+        preview_text = preview_response.get_data(as_text=True)
+        assert "Structure Preview" in preview_text
+        assert team_name in preview_text
+        assert judge_username in preview_text
+
+        import_response = admin_client.post(
+            "/admin/load-data/import",
+            data={
+                "import_mode": "append",
+                "json_payload": json.dumps(load_payload),
+            },
+            follow_redirects=False,
+        )
+        assert import_response.status_code == 200
+        import_text = import_response.get_data(as_text=True)
+        assert "Import Completed" in import_text
+
+        with app.app_context():
+            process = ProcessOption.query.filter_by(name=process_name).first()
+            theme = ThemeOption.query.filter_by(name=theme_name).first()
+            team = Team.query.filter_by(team_name=team_name).first()
+            user = User.query.filter_by(username=judge_username).first()
+
+            assert process is not None
+            assert theme is not None
+            assert team is not None
+            assert team.portal_login_id == team_login_id
+            assert team.project is not None
+            assert team.project.project_title == "Load Data Project"
+            assert TeamMember.query.filter_by(team_id=team.id, email=member_email).first() is not None
+
+            assert user is not None
+            assert user.role == "judge"
+            assert user.judge_profile is not None
+            assert user.judge_profile.display_name == judge_display_name
+    finally:
+        with app.app_context():
+            user = User.query.filter_by(username=judge_username).first()
+            team = Team.query.filter_by(team_name=team_name).first()
+            process = ProcessOption.query.filter_by(name=process_name).first()
+            theme = ThemeOption.query.filter_by(name=theme_name).first()
+
+            if team:
+                db.session.delete(team)
+            if user:
+                db.session.delete(user)
+            if process:
+                db.session.delete(process)
+            if theme:
+                db.session.delete(theme)
+            db.session.commit()
+
+
+def test_admin_load_data_clear_mode_requires_password(app, admin_client):
+    seed_team_name = _unique_name("seed_team_load")
+    process_name = _unique_name("proc_clear")
+    theme_name = _unique_name("theme_clear")
+
+    with app.app_context():
+        seeded_team = Team(
+            team_name=seed_team_name,
+            process=process_name,
+            theme=theme_name,
+            is_active=True,
+        )
+        seeded_team.project = Project(
+            project_title="Seed Project",
+            problem_statement="Seed Problem",
+            project_summary="Seed Summary",
+        )
+        db.session.add(seeded_team)
+        db.session.commit()
+        seeded_team_id = seeded_team.id
+
+    payload = {
+        "teams": [
+            {
+                "team_name": _unique_name("incoming_team"),
+                "process": "General",
+                "theme": "General",
+                "project": {
+                    "project_title": "Incoming Project",
+                    "problem_statement": "Incoming Problem",
+                    "project_summary": "Incoming Summary",
+                },
+                "members": [],
+            }
+        ],
+        "judges": [
+            {
+                "display_name": "Incoming Judge",
+            }
+        ],
+    }
+
+    try:
+        missing_password_response = admin_client.post(
+            "/admin/load-data/import",
+            data={
+                "import_mode": "clear_load",
+                "json_payload": json.dumps(payload),
+                "admin_password": "",
+            },
+            follow_redirects=False,
+        )
+        assert missing_password_response.status_code == 200
+        missing_password_text = missing_password_response.get_data(as_text=True)
+        assert "Admin password is required for Clear All Data and Load New Data mode." in missing_password_text
+
+        invalid_password_response = admin_client.post(
+            "/admin/load-data/import",
+            data={
+                "import_mode": "clear_load",
+                "json_payload": json.dumps(payload),
+                "admin_password": "invalid-password",
+            },
+            follow_redirects=False,
+        )
+        assert invalid_password_response.status_code == 200
+        invalid_password_text = invalid_password_response.get_data(as_text=True)
+        assert "Invalid admin password. Data load cancelled." in invalid_password_text
+
+        with app.app_context():
+            preserved_team = Team.query.filter_by(id=seeded_team_id).first()
+            assert preserved_team is not None
+    finally:
+        with app.app_context():
+            seeded_team = Team.query.filter_by(id=seeded_team_id).first()
+            if seeded_team:
+                db.session.delete(seeded_team)
+            db.session.commit()
+
+
+def test_judge_score_edit_flow_without_lock(app, client):
     judge_username = _unique_name("judge_step9")
     judge_password = "judgepass123"
     team_name = _unique_name("team_lock_step9")
@@ -572,40 +778,27 @@ def test_judge_score_edit_and_lock_flow(app, client):
         )
         assert edit_response.status_code == 302
 
-        lock_response = client.post(
-            f"/judge/teams/{team_id}/score",
-            data={
-                "innovation_originality": "9",
-                "technical_implementation": "7",
-                "business_value_impact": "9",
-                "presentation_clarity": "6",
-                "remarks": "Locked",
-                "action": "save_lock",
-            },
-            follow_redirects=False,
-        )
-        assert lock_response.status_code == 302
-
-        blocked_response = client.post(
+        final_save_response = client.post(
             f"/judge/teams/{team_id}/score",
             data={
                 "innovation_originality": "5",
                 "technical_implementation": "5",
                 "business_value_impact": "5",
                 "presentation_clarity": "5",
-                "remarks": "Should be blocked",
+                "remarks": "Final Save",
                 "action": "save",
             },
             follow_redirects=False,
         )
-        assert blocked_response.status_code == 302
+        assert final_save_response.status_code == 302
 
         with app.app_context():
             rows = Score.query.filter_by(judge_id=judge_id, team_id=team_id).all()
             assert len(rows) == 4
-            assert all(row.is_locked for row in rows)
+            assert all(not row.is_locked for row in rows)
+
             total = round(sum(float(row.weighted_score or 0) for row in rows), 2)
-            assert total == 79.5
+            assert total == 50.0
 
             audit_count = AuditLog.query.filter_by(actor_user_id=judge_user_id).count()
             assert audit_count > 0

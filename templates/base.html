@@ -172,6 +172,9 @@
         {% elif current_endpoint == 'admin.manage_options' %}
             {% set guide_icon_class = 'bi-sliders2-vertical' %}
             {% set guide_title = 'System Options Manual' %}
+        {% elif current_endpoint in ['admin.load_data', 'admin.preview_load_data', 'admin.import_load_data'] %}
+            {% set guide_icon_class = 'bi-database-add' %}
+            {% set guide_title = 'Load Data Manual' %}
         {% else %}
             {% set guide_icon_class = 'bi-shield-check' %}
             {% set guide_title = 'Admin Manual' %}
@@ -225,6 +228,7 @@
                     <li class="nav-item"><a class="nav-link px-3" href="{{ url_for('admin.presentation_control') }}"><i class="bi bi-stopwatch me-1"></i> Presentation</a></li>
                     <li class="nav-item"><a class="nav-link px-3" href="{{ url_for('admin.manage_judges') }}"><i class="bi bi-person-check me-1"></i> Judges</a></li>
                     <li class="nav-item"><a class="nav-link px-3" href="{{ url_for('admin.manage_options') }}"><i class="bi bi-gear me-1"></i> Options</a></li>
+                    <li class="nav-item"><a class="nav-link px-3" href="{{ url_for('admin.load_data') }}"><i class="bi bi-database-add me-1"></i> Load Data</a></li>
                     <li class="nav-item">
                         <a class="nav-link px-3 d-flex align-items-center" href="{{ url_for('admin.manage_judges') }}#pending-login-requests">
                             <i class="bi bi-envelope-open me-2"></i> Requests
@@ -313,6 +317,14 @@
                 <li>Adjust scoring only when all judges are aligned on category behavior.</li>
                 <li>Keep presentation time limit aligned with event protocol.</li>
                 <li>Theme/process options here feed downstream team setup flows.</li>
+            </ul>
+        {% elif current_endpoint in ['admin.load_data', 'admin.preview_load_data', 'admin.import_load_data'] %}
+            <h6>Load Data Guide</h6>
+            <p class="text-secondary small">Bulk load event data from a single JSON payload with preview and import controls.</p>
+            <ul class="small text-secondary">
+                <li>Use <strong>Preview Structure</strong> first to validate and inspect generated credentials.</li>
+                <li>Use <strong>Append</strong> to merge data safely without wiping current records.</li>
+                <li>Use <strong>Clear + Load</strong> only when replacing the entire dataset; admin password is mandatory.</li>
             </ul>
         {% else %}
             <h6>Admin Manual</h6>

@@ -28,6 +28,13 @@ from models.score import Score
 from models.scoring import ScoringCategorySetting
 from models.team import Project, Team, TeamMember
 from models.user import Judge, User
+from services.data_load_service import (
+    DataLoadValidationError,
+    apply_load_payload,
+    build_load_data_template,
+    parse_json_payload,
+    prepare_load_payload,
+)
 from services.presence_service import get_judge_online_map
 from services.scoring_config_service import (
     DEFAULT_SCORING_RULES,
@@ -65,6 +72,28 @@ def _set_system_setting(key, value):
     else:
         row.value = str(value)
     return row
+
+
+def _extract_load_data_json_text():
+    uploaded_file = request.files.get("json_file")
+    pasted_json = (request.form.get("json_payload") or "").strip()
+
+    if uploaded_file and uploaded_file.filename:
+        raw_bytes = uploaded_file.read()
+        if raw_bytes:
+            try:
+                decoded = raw_bytes.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError("Uploaded file must be valid UTF-8 JSON.") from exc
+
+            decoded = decoded.strip()
+            if decoded:
+                return decoded
+
+    if pasted_json:
+        return pasted_json
+
+    raise ValueError("Upload a JSON file or paste JSON content before preview/import.")
 
 
 def _get_presentation_time_limit_seconds():
@@ -252,6 +281,7 @@ def manage_options():
         .order_by(Judge.display_name.asc())
         .all()
     )
+
     themes = ThemeOption.query.order_by(ThemeOption.name.asc()).all()
     processes = ProcessOption.query.order_by(ProcessOption.name.asc()).all()
     scoring_definitions = get_category_definitions()
@@ -267,6 +297,140 @@ def manage_options():
         scoring_definitions=scoring_definitions,
         presentation_time_limit_seconds=presentation_time_limit_seconds,
         presentation_time_limit_minutes=presentation_time_limit_minutes,
+    )
+
+
+@admin_bp.get("/load-data")
+@role_required("admin")
+def load_data():
+    template_json = json.dumps(build_load_data_template(), indent=2)
+    return render_template(
+        "admin/load_data.html",
+        json_payload=template_json,
+        selected_mode="append",
+        preview=None,
+        import_result=None,
+    )
+
+
+@admin_bp.get("/load-data/template")
+@role_required("admin")
+def download_load_data_template():
+    template_json = json.dumps(build_load_data_template(), indent=2)
+    response = current_app.response_class(template_json, mimetype="application/json")
+    response.headers["Content-Disposition"] = "attachment; filename=load_data_template.json"
+    return response
+
+
+@admin_bp.post("/load-data/preview")
+@role_required("admin")
+def preview_load_data():
+    selected_mode = (request.form.get("import_mode") or "append").strip().lower() or "append"
+    raw_json_text = (request.form.get("json_payload") or "").strip()
+
+    try:
+        raw_json_text = _extract_load_data_json_text()
+        payload = parse_json_payload(raw_json_text)
+        prepared_payload, preview = prepare_load_payload(payload, mode=selected_mode)
+        json_payload = json.dumps(prepared_payload, indent=2)
+        flash("Data structure parsed successfully. Review the preview before importing.", "success")
+        return render_template(
+            "admin/load_data.html",
+            json_payload=json_payload,
+            selected_mode=selected_mode,
+            preview=preview,
+            import_result=None,
+        )
+    except (DataLoadValidationError, ValueError) as exc:
+        flash(str(exc), "danger")
+    except Exception as exc:
+        current_app.logger.error("Load data preview failed: %s", exc)
+        flash("Unable to preview JSON right now. Check the data and try again.", "danger")
+
+    fallback_payload = raw_json_text or json.dumps(build_load_data_template(), indent=2)
+    return render_template(
+        "admin/load_data.html",
+        json_payload=fallback_payload,
+        selected_mode=selected_mode,
+        preview=None,
+        import_result=None,
+    )
+
+
+@admin_bp.post("/load-data/import")
+@role_required("admin")
+def import_load_data():
+    selected_mode = (request.form.get("import_mode") or "append").strip().lower() or "append"
+    admin_password = request.form.get("admin_password", "")
+    raw_json_text = (request.form.get("json_payload") or "").strip()
+
+    if not raw_json_text:
+        try:
+            raw_json_text = _extract_load_data_json_text()
+        except ValueError:
+            raw_json_text = ""
+
+    if selected_mode == "clear_load":
+        if not admin_password:
+            flash("Admin password is required for Clear All Data and Load New Data mode.", "warning")
+            return render_template(
+                "admin/load_data.html",
+                json_payload=raw_json_text or json.dumps(build_load_data_template(), indent=2),
+                selected_mode=selected_mode,
+                preview=None,
+                import_result=None,
+            )
+
+        if not authenticate_admin(getattr(current_user, "username", ""), admin_password):
+            flash("Invalid admin password. Data load cancelled.", "danger")
+            return render_template(
+                "admin/load_data.html",
+                json_payload=raw_json_text or json.dumps(build_load_data_template(), indent=2),
+                selected_mode=selected_mode,
+                preview=None,
+                import_result=None,
+            )
+
+    try:
+        if not raw_json_text:
+            raw_json_text = _extract_load_data_json_text()
+        payload = parse_json_payload(raw_json_text)
+        prepared_payload, preview = prepare_load_payload(payload, mode=selected_mode)
+        import_result = apply_load_payload(prepared_payload, mode=selected_mode)
+        db.session.commit()
+
+        json_payload = json.dumps(prepared_payload, indent=2)
+        if selected_mode == "clear_load":
+            flash("Database was cleared and new data loaded successfully.", "success")
+        else:
+            flash("New data appended successfully.", "success")
+
+        return render_template(
+            "admin/load_data.html",
+            json_payload=json_payload,
+            selected_mode=selected_mode,
+            preview=preview,
+            import_result=import_result,
+        )
+    except (DataLoadValidationError, ValueError) as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("Load data import failed (database): %s", exc)
+        flash("Unable to import data due to a database error.", "danger")
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("Load data import failed: %s", exc)
+        flash("Unable to import JSON right now. Please review the payload and retry.", "danger")
+
+    fallback_payload = raw_json_text or json.dumps(build_load_data_template(), indent=2)
+    return render_template(
+        "admin/load_data.html",
+        json_payload=fallback_payload,
+        selected_mode=selected_mode,
+        preview=None,
+        import_result=None,
     )
 
 
