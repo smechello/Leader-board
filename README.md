@@ -205,12 +205,12 @@ Services encapsulate business logic:
 
 ```mermaid
 flowchart LR
-  U[Browser Users\nAdmin | Judge | Team | Public] --> R[Flask Routes\npublic.py | admin.py | judge.py]
-  R --> S[Service Layer\nscoring | presence | data-load | judge-scoring]
+  U[Browser users: Admin, Judge, Team, Public] --> R[Flask routes: public.py, admin.py, judge.py]
+  R --> S[Service layer: scoring, presence, data load, judge scoring]
   S --> O[SQLAlchemy ORM Models]
   O --> D[(PostgreSQL)]
 
-  R --> T[Jinja Templates + Bootstrap]
+  R --> T[Jinja templates and Bootstrap]
   T --> U
 ```
 
@@ -252,10 +252,10 @@ erDiagram
 
 ```mermaid
 flowchart LR
-  Repo[Git Repository] --> Build[Render Build\npip install -r requirements.txt]
-  Build --> Runtime[Gunicorn Runtime\ngunicorn app:app]
-  Runtime --> DB[(PostgreSQL)]
-  Runtime --> Health[/health]
+  Repo[Git repository] --> Build[Render build stage]
+  Build --> Runtime[Gunicorn runtime app:app]
+  Runtime --> DB[(PostgreSQL database)]
+  Runtime --> Health[Health endpoint]
 ```
 
 ## Event Lifecycle
