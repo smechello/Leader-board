@@ -15,11 +15,15 @@
         document.documentElement.setAttribute('data-bs-theme', theme);
         const toggler = document.getElementById('theme-toggler');
         const icon = document.getElementById('theme-icon');
+        const toggleText = document.getElementById('theme-toggle-text');
         if (toggler) {
             toggler.setAttribute('data-theme', theme);
         }
         if (icon) {
             icon.className = theme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-brightness-high-fill';
+        }
+        if (toggleText) {
+            toggleText.textContent = theme === 'dark' ? 'DARK MODE' : 'LIGHT MODE';
         }
     };
 
@@ -48,47 +52,37 @@
 
 .theme-toggle {
     position: relative;
-    width: 172px;
-    height: 54px;
+    width: 132px;
+    height: 40px;
     border-radius: 999px;
-    border: 2px solid rgba(148, 163, 184, 0.45);
+    border: 2px solid rgba(148, 163, 184, 0.4);
     background: linear-gradient(145deg, #f8fafc, #e2e8f0);
     color: #64748b;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    padding: 0 16px;
-    font-size: 0.78rem;
+    justify-content: flex-end;
+    padding: 0 10px;
+    font-size: 0.64rem;
     font-weight: 800;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
     overflow: hidden;
-    transition: all 0.3s ease;
+    transition: background 0.3s ease, border-color 0.3s ease;
 }
 
-.theme-toggle .theme-toggle-label {
-    pointer-events: none;
-    transition: opacity 0.25s ease, transform 0.3s ease;
-    white-space: nowrap;
-}
-
-.theme-toggle .label-light {
-    opacity: 1;
-    transform: translateX(10px);
-}
-
-.theme-toggle .label-dark {
-    opacity: 0;
+.theme-toggle .theme-toggle-text {
     position: absolute;
-    right: 20px;
-    color: #e2e8f0;
+    right: 14px;
+    color: #64748b;
+    pointer-events: none;
+    transition: transform 0.3s ease, color 0.3s ease;
 }
 
 .theme-toggle .theme-toggle-knob {
     position: absolute;
-    left: 4px;
-    top: 4px;
-    width: 42px;
-    height: 42px;
+    left: 3px;
+    top: 3px;
+    width: 30px;
+    height: 30px;
     border-radius: 999px;
     border: 1px solid #cbd5e1;
     background: #f8fafc;
@@ -96,28 +90,25 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.35rem;
-    box-shadow: 0 5px 14px rgba(15, 23, 42, 0.25);
+    font-size: 0.95rem;
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.22);
     transition: transform 0.3s ease, background 0.3s ease, color 0.3s ease;
 }
 
 .theme-toggle[data-theme="dark"] {
     background: linear-gradient(145deg, #1f2937, #374151);
     border-color: rgba(15, 23, 42, 0.95);
+}
+
+.theme-toggle[data-theme="dark"] .theme-toggle-text {
+    right: auto;
+    left: 14px;
+    transform: translateX(0);
     color: #cbd5e1;
 }
 
-.theme-toggle[data-theme="dark"] .label-light {
-    opacity: 0;
-    transform: translateX(-10px);
-}
-
-.theme-toggle[data-theme="dark"] .label-dark {
-    opacity: 1;
-}
-
 .theme-toggle[data-theme="dark"] .theme-toggle-knob {
-    transform: translateX(120px);
+    transform: translateX(92px);
     background: #e5e7eb;
     color: #a8b0bc;
     border-color: #d1d5db;
@@ -134,18 +125,28 @@
 
 @media (max-width: 991.98px) {
     .theme-toggle {
-        width: 156px;
-        height: 50px;
-        font-size: 0.72rem;
+        width: 118px;
+        height: 36px;
+        font-size: 0.58rem;
+        padding: 0 8px;
+    }
+
+    .theme-toggle .theme-toggle-text {
+        right: 10px;
+    }
+
+    .theme-toggle[data-theme="dark"] .theme-toggle-text {
+        left: 10px;
     }
 
     .theme-toggle .theme-toggle-knob {
-        width: 38px;
-        height: 38px;
+        width: 26px;
+        height: 26px;
+        font-size: 0.82rem;
     }
 
     .theme-toggle[data-theme="dark"] .theme-toggle-knob {
-        transform: translateX(106px);
+        transform: translateX(80px);
     }
 }
 </style>
@@ -208,15 +209,14 @@
             <ul class="navbar-nav ms-auto align-items-lg-center">
                 <li class="nav-item ms-lg-3 mt-2 mt-lg-0 d-flex align-items-center">
                     <button class="theme-toggle" id="theme-toggler" data-theme="light" title="Toggle Theme" aria-label="Toggle color theme">
-                        <span class="theme-toggle-label label-light">LIGHT MODE</span>
-                        <span class="theme-toggle-label label-dark">DARK MODE</span>
+                        <span class="theme-toggle-text" id="theme-toggle-text">LIGHT MODE</span>
                         <span class="theme-toggle-knob"><i class="bi bi-brightness-high-fill" id="theme-icon"></i></span>
                     </button>
                 </li>
             {% if current_user.is_authenticated %}
                 <li class="nav-item ms-2">
                     <button class="btn btn-link nav-link px-2 manual-trigger" type="button" data-bs-toggle="offcanvas" data-bs-target="#contextGuideOffcanvas" aria-controls="contextGuideOffcanvas" title="{{ guide_title }}">
-                        <i class="bi {{ guide_icon_class }}"></i>
+                        <i class="bi bi-info-circle-fill"></i>
                     </button>
                 </li>
                 {% if current_user.role == 'admin' %}
@@ -269,7 +269,7 @@
 {% if current_user.is_authenticated %}
 <div class="offcanvas offcanvas-end" tabindex="-1" id="contextGuideOffcanvas" aria-labelledby="contextGuideOffcanvasLabel">
   <div class="offcanvas-header bg-dark text-white">
-    <h5 class="offcanvas-title" id="contextGuideOffcanvasLabel"><i class="bi {{ guide_icon_class }} me-2"></i>{{ guide_title }}</h5>
+        <h5 class="offcanvas-title" id="contextGuideOffcanvasLabel"><i class="bi bi-info-circle-fill me-2"></i>{{ guide_title }}</h5>
     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
   </div>
   <div class="offcanvas-body">
