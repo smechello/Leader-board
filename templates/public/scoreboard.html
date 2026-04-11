@@ -3,153 +3,782 @@
 {% block title %}Live Scoreboard{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-    <h2 class="mb-0 scoreboard-title">Live Scoreboard</h2>
-    <div class="scoreboard-meta text-muted">
-        Auto-refresh every {{ (refresh_interval_ms / 1000)|int }}s
+<section class="scoreboard-shell">
+    <div class="scoreboard-hero mb-4">
+        <div class="hero-left">
+            <p class="hero-kicker mb-2"><i class="bi bi-broadcast-pin me-2"></i>Public Live Leaderboard</p>
+            <h1 class="hero-title mb-2">CorpTech Innovista Scoreboard</h1>
+            <p class="hero-subtitle mb-2">This is the live public ranking board. Scores update in near real-time as judges submit evaluations.</p>
+            <p class="hero-rule mb-0"><i class="bi bi-signpost-split me-2"></i>{{ tie_break_rule }}</p>
+        </div>
+
+        <div class="hero-controls" aria-label="Scoreboard controls">
+            <div id="scoreboard-status-pill" class="status-pill is-live">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span id="scoreboard-status-text">Live</span>
+            </div>
+
+            <label class="auto-switch" for="auto-update-toggle">
+                <input class="form-check-input m-0" type="checkbox" id="auto-update-toggle" checked>
+                <span>Auto Update</span>
+            </label>
+
+            <button id="manual-refresh-btn" class="btn btn-sm refresh-btn" type="button">
+                <i class="bi bi-arrow-clockwise me-1"></i>Refresh Now
+            </button>
+
+            <div id="next-refresh" class="next-refresh-text" aria-live="polite">
+                Next sync in {{ (refresh_interval_ms / 1000)|int }}s
+            </div>
+        </div>
     </div>
-</div>
-<p class="text-muted mb-3">
-    Public view, no login required. Rankings update automatically when judges submit scores.
-</p>
 
-<p class="small text-muted mb-3">
-    {{ tie_break_rule }}
-</p>
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-xl-3">
+            <article class="metric-card">
+                <div class="metric-icon"><i class="bi bi-people"></i></div>
+                <div class="metric-label">Total Teams</div>
+                <div id="metric-total-teams" class="metric-value">{{ rows|length }}</div>
+            </article>
+        </div>
+        <div class="col-6 col-xl-3">
+            <article class="metric-card">
+                <div class="metric-icon"><i class="bi bi-graph-up-arrow"></i></div>
+                <div class="metric-label">Average Score</div>
+                <div id="metric-average-score" class="metric-value">0.00</div>
+            </article>
+        </div>
+        <div class="col-12 col-xl-3">
+            <article class="metric-card">
+                <div class="metric-icon"><i class="bi bi-award"></i></div>
+                <div class="metric-label">Current Leader</div>
+                <div id="metric-leader-name" class="metric-value metric-leader">-</div>
+            </article>
+        </div>
+        <div class="col-12 col-xl-3">
+            <article class="metric-card">
+                <div class="metric-icon"><i class="bi bi-clock-history"></i></div>
+                <div class="metric-label">Last Updated</div>
+                <div id="metric-last-updated" class="metric-value">-</div>
+            </article>
+        </div>
+    </div>
 
-<div class="mb-3 p-2 border rounded bg-light small d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <label class="form-check-label d-flex align-items-center gap-2" for="auto-update-toggle">
-        <input class="form-check-input m-0" type="checkbox" id="auto-update-toggle" checked>
-        Auto update
-    </label>
-    <button id="manual-refresh-btn" class="btn btn-sm btn-outline-secondary" type="button">Refresh Now</button>
-    <span id="scoreboard-status" class="text-muted">Live</span>
-</div>
-
-<div class="table-responsive">
-    <table class="table table-striped table-bordered align-middle scoreboard-table">
-        <thead class="table-dark">
-            <tr>
-                <th>Rank</th>
-                <th>Team Name</th>
-                <th>Process</th>
-                <th>Theme</th>
-                <th>Score</th>
-            </tr>
-        </thead>
-        <tbody id="scoreboard-body">
-            {% for row in rows %}
-            <tr>
-                <td>{{ row.rank }}</td>
-                <td>{{ row.team_name }}</td>
-                <td>{{ row.process }}</td>
-                <td>{{ row.theme }}</td>
-                <td>{{ '%.2f'|format(row.total_score) }}</td>
-            </tr>
+    <section class="podium-panel mb-4">
+        <div class="panel-head d-flex align-items-center justify-content-between gap-2 flex-wrap">
+            <h2 class="panel-title mb-0"><i class="bi bi-trophy me-2"></i>Top Performers</h2>
+            <span class="panel-hint">Updated live from judge submissions</span>
+        </div>
+        <div id="podium-grid" class="row g-3 mt-1">
+            {% if rows %}
+                {% for row in rows[:3] %}
+                <div class="col-12 col-md-4">
+                    <article class="podium-entry rank-{{ row.rank if row.rank <= 3 else 3 }}">
+                        <div class="podium-rank">#{{ row.rank }}</div>
+                        <div class="podium-team">{{ row.team_name }}</div>
+                        <div class="podium-tags">
+                            <span>{{ row.process or '-' }}</span>
+                            <span>{{ row.theme or '-' }}</span>
+                        </div>
+                        <div class="podium-score">{{ '%.2f'|format(row.total_score) }}</div>
+                    </article>
+                </div>
+                {% endfor %}
             {% else %}
-            <tr>
-                <td colspan="5" class="text-center text-muted">No teams found.</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+                <div class="col-12">
+                    <article class="podium-empty">No team scores available yet.</article>
+                </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="table-panel">
+        <div class="panel-head d-flex align-items-center justify-content-between gap-2 flex-wrap">
+            <h2 class="panel-title mb-0"><i class="bi bi-table me-2"></i>All Rankings</h2>
+            <span class="panel-hint">Public view · No login required</span>
+        </div>
+
+        <div class="table-responsive mt-2">
+            <table class="table align-middle scoreboard-table mb-0">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Team</th>
+                        <th>Process</th>
+                        <th>Theme</th>
+                        <th class="text-end">Score</th>
+                    </tr>
+                </thead>
+                <tbody id="scoreboard-body">
+                    {% for row in rows %}
+                    <tr>
+                        <td><span class="rank-pill rank-{{ row.rank if row.rank <= 3 else 'default' }}">#{{ row.rank }}</span></td>
+                        <td class="fw-semibold">{{ row.team_name }}</td>
+                        <td><span class="meta-chip">{{ row.process or '-' }}</span></td>
+                        <td><span class="meta-chip">{{ row.theme or '-' }}</span></td>
+                        <td class="text-end fw-bold score-cell">{{ '%.2f'|format(row.total_score) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">No teams found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</section>
 
 <div
     id="scoreboard-config"
     data-refresh-ms="{{ refresh_interval_ms }}"
     data-endpoint="{{ url_for('public.scoreboard_data') }}"
+    data-generated-at="{{ generated_at.isoformat() if generated_at else '' }}"
     hidden>
 </div>
+
+<script id="scoreboard-initial-data" type="application/json">{{ rows|tojson }}</script>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=DM+Sans:wght@400;500;700&display=swap');
+
+.scoreboard-shell {
+    --sb-bg: #f8fafc;
+    --sb-surface: #ffffff;
+    --sb-ink: #0f172a;
+    --sb-soft: #64748b;
+    --sb-line: #dbe4f0;
+    --sb-brand: #0f766e;
+    --sb-brand-2: #0ea5e9;
+    --sb-gold: #f59e0b;
+    --sb-silver: #94a3b8;
+    --sb-bronze: #b45309;
+    font-family: 'DM Sans', sans-serif;
+    position: relative;
+    padding-bottom: 1.25rem;
+}
+
+[data-bs-theme="dark"] .scoreboard-shell {
+    --sb-bg: #0f172a;
+    --sb-surface: #162033;
+    --sb-ink: #e2e8f0;
+    --sb-soft: #94a3b8;
+    --sb-line: #2b3950;
+    --sb-brand: #14b8a6;
+    --sb-brand-2: #38bdf8;
+}
+
+.scoreboard-shell::before {
+    content: "";
+    position: absolute;
+    inset: -8% -6% auto;
+    height: 220px;
+    background: radial-gradient(60% 80% at 20% 20%, rgba(14, 165, 233, 0.14), transparent 70%),
+                radial-gradient(45% 60% at 80% 10%, rgba(15, 118, 110, 0.18), transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+.scoreboard-hero,
+.metric-card,
+.podium-panel,
+.table-panel {
+    position: relative;
+    z-index: 1;
+    border: 1px solid var(--sb-line);
+    background: var(--sb-surface);
+    border-radius: 1rem;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.07);
+}
+
+[data-bs-theme="dark"] .scoreboard-hero,
+[data-bs-theme="dark"] .metric-card,
+[data-bs-theme="dark"] .podium-panel,
+[data-bs-theme="dark"] .table-panel {
+    box-shadow: 0 10px 26px rgba(2, 6, 23, 0.35);
+}
+
+.scoreboard-hero {
+    padding: 1.25rem;
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: 1rem;
+    align-items: stretch;
+}
+
+.hero-kicker {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--sb-brand);
+    font-weight: 700;
+}
+
+.hero-title {
+    font-family: 'Sora', sans-serif;
+    font-size: clamp(1.35rem, 2.8vw, 2rem);
+    font-weight: 800;
+    color: var(--sb-ink);
+}
+
+.hero-subtitle,
+.hero-rule {
+    color: var(--sb-soft);
+    margin: 0;
+}
+
+.hero-rule {
+    font-size: 0.9rem;
+}
+
+.hero-controls {
+    border: 1px dashed var(--sb-line);
+    border-radius: 0.9rem;
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.05), rgba(15, 118, 110, 0.05));
+    padding: 0.9rem;
+    display: grid;
+    gap: 0.65rem;
+    align-content: start;
+}
+
+.status-pill {
+    border-radius: 999px;
+    padding: 0.35rem 0.75rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    width: fit-content;
+    border: 1px solid transparent;
+}
+
+.status-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.status-pill.is-live {
+    color: #0f766e;
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.25);
+}
+
+.status-pill.is-live .status-dot {
+    background: #10b981;
+}
+
+.status-pill.is-sync {
+    color: #0369a1;
+    background: rgba(14, 165, 233, 0.15);
+    border-color: rgba(14, 165, 233, 0.28);
+}
+
+.status-pill.is-sync .status-dot {
+    background: #0ea5e9;
+}
+
+.status-pill.is-paused {
+    color: #b45309;
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+.status-pill.is-paused .status-dot {
+    background: #f59e0b;
+}
+
+.status-pill.is-error {
+    color: #b91c1c;
+    background: rgba(239, 68, 68, 0.13);
+    border-color: rgba(239, 68, 68, 0.28);
+}
+
+.status-pill.is-error .status-dot {
+    background: #ef4444;
+}
+
+.auto-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    color: var(--sb-ink);
+}
+
+.refresh-btn {
+    border-radius: 999px;
+    border: 1px solid var(--sb-line);
+    background: var(--sb-surface);
+    color: var(--sb-ink);
+    font-weight: 700;
+}
+
+.refresh-btn:hover {
+    background: var(--sb-brand);
+    border-color: var(--sb-brand);
+    color: #fff;
+}
+
+.next-refresh-text {
+    color: var(--sb-soft);
+    font-size: 0.85rem;
+}
+
+.metric-card {
+    padding: 0.95rem;
+    height: 100%;
+}
+
+.metric-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, rgba(15, 118, 110, 0.14), rgba(14, 165, 233, 0.16));
+    color: var(--sb-brand);
+    margin-bottom: 0.4rem;
+}
+
+.metric-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--sb-soft);
+    font-weight: 700;
+}
+
+.metric-value {
+    margin-top: 0.18rem;
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: var(--sb-ink);
+    font-family: 'Sora', sans-serif;
+}
+
+.metric-leader {
+    font-size: 1rem;
+}
+
+.podium-panel,
+.table-panel {
+    padding: 1rem;
+}
+
+.panel-head {
+    border-bottom: 1px solid var(--sb-line);
+    padding-bottom: 0.65rem;
+}
+
+.panel-title {
+    color: var(--sb-ink);
+    font-size: 1.05rem;
+    font-weight: 800;
+    font-family: 'Sora', sans-serif;
+}
+
+.panel-hint {
+    color: var(--sb-soft);
+    font-size: 0.82rem;
+}
+
+.podium-entry {
+    border: 1px solid var(--sb-line);
+    border-radius: 0.95rem;
+    padding: 0.85rem;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.94));
+    height: 100%;
+}
+
+[data-bs-theme="dark"] .podium-entry {
+    background: linear-gradient(180deg, rgba(30, 41, 59, 0.95), rgba(22, 32, 51, 0.95));
+}
+
+.podium-entry.rank-1 {
+    border-color: rgba(245, 158, 11, 0.45);
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.22);
+}
+
+.podium-entry.rank-2 {
+    border-color: rgba(148, 163, 184, 0.5);
+}
+
+.podium-entry.rank-3 {
+    border-color: rgba(180, 83, 9, 0.45);
+}
+
+.podium-rank {
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    color: var(--sb-soft);
+    text-transform: uppercase;
+}
+
+.podium-team {
+    margin-top: 0.2rem;
+    font-family: 'Sora', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--sb-ink);
+}
+
+.podium-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.45rem;
+}
+
+.podium-tags span,
+.meta-chip {
+    border: 1px solid var(--sb-line);
+    border-radius: 999px;
+    padding: 0.18rem 0.55rem;
+    color: var(--sb-soft);
+    font-size: 0.75rem;
+    background: rgba(148, 163, 184, 0.07);
+}
+
+.podium-score {
+    margin-top: 0.6rem;
+    font-size: 1.3rem;
+    font-weight: 800;
+    font-family: 'Sora', sans-serif;
+    color: var(--sb-brand);
+}
+
+.podium-empty {
+    border: 1px dashed var(--sb-line);
+    border-radius: 0.9rem;
+    padding: 1rem;
+    text-align: center;
+    color: var(--sb-soft);
+}
+
+.scoreboard-table thead th {
+    border-bottom: 1px solid var(--sb-line);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--sb-soft);
+    background: transparent;
+}
+
+.scoreboard-table tbody td {
+    border-color: var(--sb-line);
+    color: var(--sb-ink);
+    vertical-align: middle;
+}
+
+.scoreboard-table tbody tr {
+    transition: background 0.2s ease;
+}
+
+.scoreboard-table tbody tr:hover {
+    background: rgba(14, 165, 233, 0.06);
+}
+
+.rank-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 52px;
+    border-radius: 999px;
+    padding: 0.24rem 0.62rem;
+    font-size: 0.78rem;
+    font-weight: 800;
+    border: 1px solid var(--sb-line);
+    color: var(--sb-soft);
+}
+
+.rank-pill.rank-1 {
+    border-color: rgba(245, 158, 11, 0.5);
+    color: #92400e;
+    background: rgba(245, 158, 11, 0.18);
+}
+
+.rank-pill.rank-2 {
+    border-color: rgba(148, 163, 184, 0.55);
+    color: #475569;
+    background: rgba(148, 163, 184, 0.18);
+}
+
+.rank-pill.rank-3 {
+    border-color: rgba(180, 83, 9, 0.45);
+    color: #92400e;
+    background: rgba(180, 83, 9, 0.12);
+}
+
+.score-cell {
+    color: var(--sb-brand);
+    font-family: 'Sora', sans-serif;
+}
+
+@media (max-width: 991.98px) {
+    .scoreboard-hero {
+        grid-template-columns: 1fr;
+    }
+
+    .hero-controls {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
 
 <script>
 (function () {
     const configElement = document.getElementById('scoreboard-config');
+    const initialDataElement = document.getElementById('scoreboard-initial-data');
+    if (!configElement || !initialDataElement) {
+        return;
+    }
+
     const refreshIntervalMs = Number(configElement.dataset.refreshMs || '5000');
     const endpointUrl = configElement.dataset.endpoint || '/api/scoreboard';
+    const initialGeneratedAt = configElement.dataset.generatedAt || '';
+
+    let initialRows = [];
+    try {
+        initialRows = JSON.parse(initialDataElement.textContent || '[]');
+    } catch (error) {
+        initialRows = [];
+    }
 
     const tableBody = document.getElementById('scoreboard-body');
+    const podiumGrid = document.getElementById('podium-grid');
     const autoUpdateToggle = document.getElementById('auto-update-toggle');
     const manualRefreshBtn = document.getElementById('manual-refresh-btn');
-    const statusElement = document.getElementById('scoreboard-status');
+    const statusPill = document.getElementById('scoreboard-status-pill');
+    const statusText = document.getElementById('scoreboard-status-text');
+    const nextRefreshText = document.getElementById('next-refresh');
 
-    function renderRows(rows) {
+    const totalTeamsElement = document.getElementById('metric-total-teams');
+    const averageScoreElement = document.getElementById('metric-average-score');
+    const leaderElement = document.getElementById('metric-leader-name');
+    const lastUpdatedElement = document.getElementById('metric-last-updated');
+
+    let nextRefreshAt = Date.now() + refreshIntervalMs;
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function formatScore(value) {
+        return Number(value || 0).toFixed(2);
+    }
+
+    function formatClock(isoText) {
+        if (!isoText) {
+            return 'Just now';
+        }
+
+        const date = new Date(isoText);
+        if (Number.isNaN(date.getTime())) {
+            return 'Just now';
+        }
+
+        return date.toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+        });
+    }
+
+    function statusClassFor(kind) {
+        if (kind === 'sync') {
+            return 'is-sync';
+        }
+        if (kind === 'paused') {
+            return 'is-paused';
+        }
+        if (kind === 'error') {
+            return 'is-error';
+        }
+        return 'is-live';
+    }
+
+    function setStatus(kind, text) {
+        if (!statusPill || !statusText) {
+            return;
+        }
+
+        statusPill.classList.remove('is-live', 'is-sync', 'is-paused', 'is-error');
+        statusPill.classList.add(statusClassFor(kind));
+        statusText.textContent = text;
+    }
+
+    function renderTable(rows) {
+        if (!tableBody) {
+            return;
+        }
+
         tableBody.innerHTML = '';
-
         if (!rows || rows.length === 0) {
-            const emptyRow = document.createElement('tr');
-            emptyRow.innerHTML = '<td colspan="5" class="text-center text-muted">No teams found.</td>';
-            tableBody.appendChild(emptyRow);
+            tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No teams found.</td></tr>';
             return;
         }
 
         rows.forEach((row) => {
-            const tr = document.createElement('tr');
+            const rank = Number(row.rank || 0);
+            const rankClass = rank >= 1 && rank <= 3 ? `rank-${rank}` : 'rank-default';
 
-            const rankCell = document.createElement('td');
-            rankCell.textContent = String(row.rank);
-            tr.appendChild(rankCell);
-
-            const nameCell = document.createElement('td');
-            nameCell.textContent = String(row.team_name);
-            tr.appendChild(nameCell);
-
-            const processCell = document.createElement('td');
-            processCell.textContent = String(row.process || '-');
-            tr.appendChild(processCell);
-
-            const themeCell = document.createElement('td');
-            themeCell.textContent = String(row.theme);
-            tr.appendChild(themeCell);
-
-            const scoreCell = document.createElement('td');
-            scoreCell.textContent = Number(row.total_score).toFixed(2);
-            tr.appendChild(scoreCell);
-
-            tableBody.appendChild(tr);
+            tableBody.insertAdjacentHTML(
+                'beforeend',
+                `<tr>
+                    <td><span class="rank-pill ${rankClass}">#${rank}</span></td>
+                    <td class="fw-semibold">${escapeHtml(row.team_name || '-')}</td>
+                    <td><span class="meta-chip">${escapeHtml(row.process || '-')}</span></td>
+                    <td><span class="meta-chip">${escapeHtml(row.theme || '-')}</span></td>
+                    <td class="text-end fw-bold score-cell">${formatScore(row.total_score)}</td>
+                </tr>`
+            );
         });
     }
 
-    async function refreshScoreboard() {
-        if (!autoUpdateToggle.checked) {
-            statusElement.textContent = 'Paused';
+    function renderPodium(rows) {
+        if (!podiumGrid) {
+            return;
+        }
+
+        podiumGrid.innerHTML = '';
+        const topRows = Array.isArray(rows) ? rows.slice(0, 3) : [];
+
+        if (topRows.length === 0) {
+            podiumGrid.innerHTML = '<div class="col-12"><article class="podium-empty">No team scores available yet.</article></div>';
+            return;
+        }
+
+        topRows.forEach((row) => {
+            const rank = Number(row.rank || 0);
+            const boundedRank = rank >= 1 && rank <= 3 ? rank : 3;
+            podiumGrid.insertAdjacentHTML(
+                'beforeend',
+                `<div class="col-12 col-md-4">
+                    <article class="podium-entry rank-${boundedRank}">
+                        <div class="podium-rank">#${rank}</div>
+                        <div class="podium-team">${escapeHtml(row.team_name || '-')}</div>
+                        <div class="podium-tags">
+                            <span>${escapeHtml(row.process || '-')}</span>
+                            <span>${escapeHtml(row.theme || '-')}</span>
+                        </div>
+                        <div class="podium-score">${formatScore(row.total_score)}</div>
+                    </article>
+                </div>`
+            );
+        });
+    }
+
+    function updateMetrics(rows, generatedAt) {
+        const rowList = Array.isArray(rows) ? rows : [];
+        const teamCount = rowList.length;
+        const total = rowList.reduce((acc, item) => acc + Number(item.total_score || 0), 0);
+        const average = teamCount > 0 ? total / teamCount : 0;
+        const leader = teamCount > 0 ? rowList[0] : null;
+
+        if (totalTeamsElement) {
+            totalTeamsElement.textContent = String(teamCount);
+        }
+        if (averageScoreElement) {
+            averageScoreElement.textContent = formatScore(average);
+        }
+        if (leaderElement) {
+            leaderElement.textContent = leader ? `${leader.team_name} (${formatScore(leader.total_score)})` : '-';
+        }
+        if (lastUpdatedElement) {
+            lastUpdatedElement.textContent = formatClock(generatedAt);
+        }
+    }
+
+    function renderAll(rows, generatedAt) {
+        renderTable(rows);
+        renderPodium(rows);
+        updateMetrics(rows, generatedAt);
+    }
+
+    function updateCountdown() {
+        if (!nextRefreshText) {
+            return;
+        }
+
+        if (!autoUpdateToggle || !autoUpdateToggle.checked) {
+            nextRefreshText.textContent = 'Auto update paused';
+            return;
+        }
+
+        const remainingSeconds = Math.max(0, Math.ceil((nextRefreshAt - Date.now()) / 1000));
+        nextRefreshText.textContent = remainingSeconds > 0
+            ? `Next sync in ${remainingSeconds}s`
+            : 'Syncing now...';
+    }
+
+    async function refreshScoreboard(force) {
+        const forceRefresh = Boolean(force);
+        if (!autoUpdateToggle) {
+            return;
+        }
+
+        if (!autoUpdateToggle.checked && !forceRefresh) {
+            setStatus('paused', 'Paused');
+            updateCountdown();
             return;
         }
 
         try {
-            statusElement.textContent = 'Syncing...';
+            setStatus('sync', 'Syncing');
             const response = await fetch(endpointUrl, { cache: 'no-store' });
             if (!response.ok) {
                 throw new Error('Scoreboard refresh failed');
             }
 
             const payload = await response.json();
-            renderRows(payload.rows || []);
-            statusElement.textContent = 'Live';
+            const rows = Array.isArray(payload.rows) ? payload.rows : [];
+            const generatedAt = payload.generated_at || new Date().toISOString();
+            renderAll(rows, generatedAt);
+            setStatus('live', 'Live');
+            nextRefreshAt = Date.now() + refreshIntervalMs;
+            updateCountdown();
         } catch (error) {
-            statusElement.textContent = 'Refresh failed. Retrying...';
+            setStatus('error', 'Connection issue');
         }
     }
 
-    autoUpdateToggle.addEventListener('change', () => {
-        if (autoUpdateToggle.checked) {
-            refreshScoreboard();
-        } else {
-            statusElement.textContent = 'Paused';
-        }
-    });
+    if (autoUpdateToggle) {
+        autoUpdateToggle.addEventListener('change', () => {
+            if (autoUpdateToggle.checked) {
+                setStatus('live', 'Live');
+                nextRefreshAt = Date.now() + refreshIntervalMs;
+                refreshScoreboard(true);
+            } else {
+                setStatus('paused', 'Paused');
+                updateCountdown();
+            }
+        });
+    }
 
-    manualRefreshBtn.addEventListener('click', async () => {
-        const previous = autoUpdateToggle.checked;
-        autoUpdateToggle.checked = true;
-        await refreshScoreboard();
-        autoUpdateToggle.checked = previous;
-        if (!previous) {
-            statusElement.textContent = 'Paused';
-        }
-    });
+    if (manualRefreshBtn) {
+        manualRefreshBtn.addEventListener('click', () => {
+            refreshScoreboard(true);
+        });
+    }
 
-    setInterval(refreshScoreboard, refreshIntervalMs);
+    renderAll(initialRows, initialGeneratedAt || new Date().toISOString());
+    setStatus('live', 'Live');
+    updateCountdown();
+
+    setInterval(() => {
+        refreshScoreboard(false);
+    }, refreshIntervalMs);
+
+    setInterval(updateCountdown, 1000);
 })();
 </script>
 {% endblock %}
