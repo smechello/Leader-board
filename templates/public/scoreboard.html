@@ -34,32 +34,18 @@
     </div>
 
     <div class="row g-3 mb-4">
-        <div class="col-6 col-xl-3">
+        <div class="col-12 col-md-6">
             <article class="metric-card">
                 <div class="metric-icon"><i class="bi bi-people"></i></div>
                 <div class="metric-label">Total Teams</div>
                 <div id="metric-total-teams" class="metric-value">{{ rows|length }}</div>
             </article>
         </div>
-        <div class="col-6 col-xl-3">
-            <article class="metric-card">
-                <div class="metric-icon"><i class="bi bi-graph-up-arrow"></i></div>
-                <div class="metric-label">Average Score</div>
-                <div id="metric-average-score" class="metric-value">0.00</div>
-            </article>
-        </div>
-        <div class="col-12 col-xl-3">
+        <div class="col-12 col-md-6">
             <article class="metric-card">
                 <div class="metric-icon"><i class="bi bi-award"></i></div>
                 <div class="metric-label">Current Leader</div>
                 <div id="metric-leader-name" class="metric-value metric-leader">-</div>
-            </article>
-        </div>
-        <div class="col-12 col-xl-3">
-            <article class="metric-card">
-                <div class="metric-icon"><i class="bi bi-clock-history"></i></div>
-                <div class="metric-label">Last Updated</div>
-                <div id="metric-last-updated" class="metric-value">-</div>
             </article>
         </div>
     </div>
@@ -133,7 +119,6 @@
     id="scoreboard-config"
     data-refresh-ms="{{ refresh_interval_ms }}"
     data-endpoint="{{ url_for('public.scoreboard_data') }}"
-    data-generated-at="{{ generated_at.isoformat() if generated_at else '' }}"
     hidden>
 </div>
 
@@ -539,8 +524,6 @@
 
     const refreshIntervalMs = Number(configElement.dataset.refreshMs || '5000');
     const endpointUrl = configElement.dataset.endpoint || '/api/scoreboard';
-    const initialGeneratedAt = configElement.dataset.generatedAt || '';
-
     let initialRows = [];
     try {
         initialRows = JSON.parse(initialDataElement.textContent || '[]');
@@ -557,9 +540,7 @@
     const nextRefreshText = document.getElementById('next-refresh');
 
     const totalTeamsElement = document.getElementById('metric-total-teams');
-    const averageScoreElement = document.getElementById('metric-average-score');
     const leaderElement = document.getElementById('metric-leader-name');
-    const lastUpdatedElement = document.getElementById('metric-last-updated');
 
     let nextRefreshAt = Date.now() + refreshIntervalMs;
 
@@ -574,23 +555,6 @@
 
     function formatScore(value) {
         return Number(value || 0).toFixed(2);
-    }
-
-    function formatClock(isoText) {
-        if (!isoText) {
-            return 'Just now';
-        }
-
-        const date = new Date(isoText);
-        if (Number.isNaN(date.getTime())) {
-            return 'Just now';
-        }
-
-        return date.toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-        });
     }
 
     function statusClassFor(kind) {
@@ -677,31 +641,23 @@
         });
     }
 
-    function updateMetrics(rows, generatedAt) {
+    function updateMetrics(rows) {
         const rowList = Array.isArray(rows) ? rows : [];
         const teamCount = rowList.length;
-        const total = rowList.reduce((acc, item) => acc + Number(item.total_score || 0), 0);
-        const average = teamCount > 0 ? total / teamCount : 0;
         const leader = teamCount > 0 ? rowList[0] : null;
 
         if (totalTeamsElement) {
             totalTeamsElement.textContent = String(teamCount);
         }
-        if (averageScoreElement) {
-            averageScoreElement.textContent = formatScore(average);
-        }
         if (leaderElement) {
             leaderElement.textContent = leader ? `${leader.team_name} (${formatScore(leader.total_score)})` : '-';
         }
-        if (lastUpdatedElement) {
-            lastUpdatedElement.textContent = formatClock(generatedAt);
-        }
     }
 
-    function renderAll(rows, generatedAt) {
+    function renderAll(rows) {
         renderTable(rows);
         renderPodium(rows);
-        updateMetrics(rows, generatedAt);
+        updateMetrics(rows);
     }
 
     function updateCountdown() {
@@ -741,8 +697,7 @@
 
             const payload = await response.json();
             const rows = Array.isArray(payload.rows) ? payload.rows : [];
-            const generatedAt = payload.generated_at || new Date().toISOString();
-            renderAll(rows, generatedAt);
+            renderAll(rows);
             setStatus('live', 'Live');
             nextRefreshAt = Date.now() + refreshIntervalMs;
             updateCountdown();
@@ -770,7 +725,7 @@
         });
     }
 
-    renderAll(initialRows, initialGeneratedAt || new Date().toISOString());
+    renderAll(initialRows);
     setStatus('live', 'Live');
     updateCountdown();
 
