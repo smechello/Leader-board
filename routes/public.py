@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 import secrets
+from threading import Lock
+from time import monotonic
 
-from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
@@ -22,7 +24,11 @@ from models.team import Team, TeamMember
 from models.user import Judge, User
 from services.presence_service import mark_judge_offline, mark_judge_online
 from services.scoring_config_service import CATEGORY_LABELS, get_category_definitions
-from services.scoring_service import get_live_scoreboard_rows, get_scoreboard_tie_break_rule
+from services.scoring_service import (
+    SCOREBOARD_CACHE_TTL_SECONDS,
+    get_cached_live_scoreboard_snapshot,
+    get_scoreboard_tie_break_rule,
+)
 from utils.auth import authenticate_admin
 from utils.team_auth import (
     authenticate_team,
@@ -35,10 +41,53 @@ from utils.team_auth import (
 
 public_bp = Blueprint("public", __name__)
 LOGIN_REQUEST_POLL_INTERVAL_MS = 4000
+SCOREBOARD_REFRESH_INTERVAL_MS = 5000
+
+_scoreboard_html_cache_lock = Lock()
+_scoreboard_html_cache = {}
 
 
 def _utcnow():
     return datetime.now(timezone.utc)
+
+
+def _scoreboard_html_cache_key():
+    if current_user.is_authenticated:
+        return f"auth:{getattr(current_user, 'role', 'user')}"
+    if session.get("team_portal_team_id"):
+        return "team_portal"
+    return "anonymous"
+
+
+def _has_pending_flash_messages():
+    return bool(session.get("_flashes"))
+
+
+def _parse_refresh_flag():
+    value = (request.args.get("refresh") or "").strip().lower()
+    return value in {"1", "true", "yes", "y"}
+
+
+def _get_cached_scoreboard_html(cache_key):
+    with _scoreboard_html_cache_lock:
+        entry = _scoreboard_html_cache.get(cache_key)
+        if not entry:
+            return None
+
+        age_seconds = monotonic() - float(entry.get("created_at_monotonic") or 0.0)
+        if age_seconds >= SCOREBOARD_CACHE_TTL_SECONDS:
+            _scoreboard_html_cache.pop(cache_key, None)
+            return None
+
+        return entry.get("html")
+
+
+def _set_cached_scoreboard_html(cache_key, rendered_html):
+    with _scoreboard_html_cache_lock:
+        _scoreboard_html_cache[cache_key] = {
+            "created_at_monotonic": monotonic(),
+            "html": rendered_html,
+        }
 
 
 def _find_active_judge_user(identifier):
@@ -76,26 +125,65 @@ def home():
 
 @public_bp.get("/scoreboard")
 def scoreboard():
-    rows = get_live_scoreboard_rows()
-    return render_template(
+    force_refresh = _parse_refresh_flag()
+    can_use_html_cache = (
+        not current_app.config.get("TESTING")
+        and not force_refresh
+        and not _has_pending_flash_messages()
+    )
+
+    cache_key = _scoreboard_html_cache_key()
+    if can_use_html_cache:
+        cached_html = _get_cached_scoreboard_html(cache_key)
+        if cached_html is not None:
+            response = current_app.response_class(cached_html, mimetype="text/html")
+            response.headers["X-Scoreboard-HTML-Cache"] = "HIT"
+            response.headers["X-Scoreboard-Data-Cache"] = "HIT"
+            return response
+
+    snapshot = get_cached_live_scoreboard_snapshot(
+        max_age_seconds=SCOREBOARD_CACHE_TTL_SECONDS,
+        force_refresh=force_refresh,
+    )
+
+    rendered_html = render_template(
         "public/scoreboard.html",
-        rows=rows,
-        refresh_interval_ms=5000,
-        generated_at=datetime.now(timezone.utc),
+        rows=snapshot["rows"],
+        refresh_interval_ms=SCOREBOARD_REFRESH_INTERVAL_MS,
+        generated_at=snapshot["generated_at"],
         tie_break_rule=get_scoreboard_tie_break_rule(),
     )
+
+    if can_use_html_cache:
+        _set_cached_scoreboard_html(cache_key, rendered_html)
+
+    response = current_app.response_class(rendered_html, mimetype="text/html")
+    response.headers["X-Scoreboard-HTML-Cache"] = "MISS" if can_use_html_cache else "BYPASS"
+    response.headers["X-Scoreboard-Data-Cache"] = "HIT" if snapshot["cache_hit"] else "MISS"
+    return response
 
 
 @public_bp.get("/api/scoreboard")
 def scoreboard_data():
-    rows = get_live_scoreboard_rows()
-    return jsonify(
+    force_refresh = _parse_refresh_flag()
+    snapshot = get_cached_live_scoreboard_snapshot(
+        max_age_seconds=SCOREBOARD_CACHE_TTL_SECONDS,
+        force_refresh=force_refresh,
+    )
+
+    response = jsonify(
         {
-            "rows": rows,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "rows": snapshot["rows"],
+            "generated_at": (
+                snapshot["generated_at"].isoformat()
+                if snapshot.get("generated_at")
+                else datetime.now(timezone.utc).isoformat()
+            ),
             "tie_break_rule": get_scoreboard_tie_break_rule(),
         }
     )
+    response.headers["X-Scoreboard-Data-Cache"] = "HIT" if snapshot["cache_hit"] else "MISS"
+    return response
 
 
 @public_bp.route("/login", methods=["GET", "POST"])

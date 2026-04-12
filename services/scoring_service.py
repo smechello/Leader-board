@@ -1,3 +1,7 @@
+from datetime import datetime, timezone
+from threading import Lock
+from time import monotonic
+
 from flask import current_app
 from sqlalchemy import case, func
 from sqlalchemy.exc import SQLAlchemyError
@@ -12,12 +16,24 @@ SCOREBOARD_TIE_BREAK_RULE = (
     "then earliest score submission time."
 )
 
+SCOREBOARD_CACHE_TTL_SECONDS = 5.0
+_scoreboard_cache_lock = Lock()
+_scoreboard_cache = {
+    "created_at_monotonic": 0.0,
+    "generated_at": None,
+    "rows": None,
+}
+
 
 def get_scoreboard_tie_break_rule():
     return SCOREBOARD_TIE_BREAK_RULE
 
 
-def get_live_scoreboard_rows():
+def _clone_rows(rows):
+    return [dict(row) for row in (rows or [])]
+
+
+def _query_live_scoreboard_rows():
     total_score = func.coalesce(func.sum(Score.weighted_score), 0).label("total_score")
     business_value_score = func.coalesce(
         func.sum(
@@ -69,3 +85,49 @@ def get_live_scoreboard_rows():
         }
         for index, row in enumerate(rows, start=1)
     ]
+
+
+def clear_scoreboard_cache():
+    with _scoreboard_cache_lock:
+        _scoreboard_cache["created_at_monotonic"] = 0.0
+        _scoreboard_cache["generated_at"] = None
+        _scoreboard_cache["rows"] = None
+
+
+def get_cached_live_scoreboard_snapshot(max_age_seconds=SCOREBOARD_CACHE_TTL_SECONDS, force_refresh=False):
+    # Keep tests deterministic and avoid stale assertions.
+    if force_refresh or current_app.config.get("TESTING"):
+        return {
+            "rows": _query_live_scoreboard_rows(),
+            "generated_at": datetime.now(timezone.utc),
+            "cache_hit": False,
+        }
+
+    now_monotonic = monotonic()
+    with _scoreboard_cache_lock:
+        cached_rows = _scoreboard_cache.get("rows")
+        cached_at = float(_scoreboard_cache.get("created_at_monotonic") or 0.0)
+        if cached_rows is not None and (now_monotonic - cached_at) < float(max_age_seconds):
+            return {
+                "rows": _clone_rows(cached_rows),
+                "generated_at": _scoreboard_cache.get("generated_at"),
+                "cache_hit": True,
+            }
+
+    fresh_rows = _query_live_scoreboard_rows()
+    generated_at = datetime.now(timezone.utc)
+
+    with _scoreboard_cache_lock:
+        _scoreboard_cache["rows"] = _clone_rows(fresh_rows)
+        _scoreboard_cache["generated_at"] = generated_at
+        _scoreboard_cache["created_at_monotonic"] = now_monotonic
+
+    return {
+        "rows": fresh_rows,
+        "generated_at": generated_at,
+        "cache_hit": False,
+    }
+
+
+def get_live_scoreboard_rows():
+    return _query_live_scoreboard_rows()
